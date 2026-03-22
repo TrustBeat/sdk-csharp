@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+
+    <!-- NuGet metadata (not published yet) -->
+    <PackageId>TrustBeat</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>TrustBeat</Authors>
+    <Description>TrustBeat SDK — qualified timestamping and Merkle anchoring</Description>
+    <PackageProjectUrl>https://trustbeat.eu</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+
+    <!-- Zero runtime dependencies — BCL only (System.Net.Http, System.Security.Cryptography) -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>TrustBeat.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>
