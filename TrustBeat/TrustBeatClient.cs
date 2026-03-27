@@ -1,3 +1,4 @@
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using TrustBeat.Internal;
@@ -159,6 +160,44 @@ public sealed class TrustBeatClient : IDisposable
     {
         var digest = await SHA256.HashDataAsync(stream, ct).ConfigureAwait(false);
         return Convert.ToHexString(digest).ToLowerInvariant();
+    }
+
+    /// <summary>SHA-256 hash of a local file, as a lowercase hex string.</summary>
+    public static async Task<string> HashFileAsync(string path, CancellationToken ct = default)
+    {
+        await using var stream = File.OpenRead(path);
+        return await HashStreamAsync(stream, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Hash a local file with SHA-256 and submit it for anchoring.
+    /// The file is never uploaded — only the 64-character hex digest is sent.
+    /// <c>Description</c> defaults to the filename if not provided.
+    /// </summary>
+    public async Task<AnchorJob> AnchorFileAsync(
+        string path,
+        AnchorOptions? options = null,
+        CancellationToken ct = default)
+    {
+        var hash = await HashFileAsync(path, ct).ConfigureAwait(false);
+        var opts = options ?? new AnchorOptions();
+        if (opts.Description is null)
+            opts = new AnchorOptions { ClientRef = opts.ClientRef, Description = System.IO.Path.GetFileName(path) };
+        return await AnchorAsync(hash, opts, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Hash a file, submit for anchoring, and wait for the proof.
+    /// Convenience wrapper around <see cref="AnchorFileAsync"/> + <see cref="AnchorWaitAsync"/>.
+    /// </summary>
+    public async Task<AnchorProof> AnchorFileWaitAsync(
+        string path,
+        AnchorOptions? options = null,
+        AnchorWaitOptions? waitOptions = null,
+        CancellationToken ct = default)
+    {
+        var job = await AnchorFileAsync(path, options, ct).ConfigureAwait(false);
+        return await AnchorWaitAsync(job.Id, waitOptions, ct).ConfigureAwait(false);
     }
 
     public void Dispose() => _api.Dispose();

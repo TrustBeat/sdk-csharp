@@ -257,4 +257,94 @@ public class TrustBeatClientTests
         Assert.Equal(TrustBeatClient.HashBytes(data),
                      await TrustBeatClient.HashStreamAsync(stream));
     }
+
+    // ── AnchorFileAsync() ─────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task HashFileAsyncMatchesHashBytes()
+    {
+        var content = "deterministic content 42"u8.ToArray();
+        var path    = Path.GetTempFileName();
+        try
+        {
+            await System.IO.File.WriteAllBytesAsync(path, content);
+            var expected = TrustBeatClient.HashBytes(content);
+            Assert.Equal(expected, await TrustBeatClient.HashFileAsync(path));
+        }
+        finally { System.IO.File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task AnchorFileAsyncSendsCorrectHash()
+    {
+        var content  = "hello trustbeat"u8.ToArray();
+        var expected = TrustBeatClient.HashBytes(content);
+        string? capturedHash = null;
+
+        var client = ClientWith(req =>
+        {
+            var body = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            var doc  = System.Text.Json.JsonDocument.Parse(body);
+            capturedHash = doc.RootElement.GetProperty("hash").GetString();
+            return Ok(AnchorAccepted("track-f1"));
+        });
+
+        var path = Path.GetTempFileName();
+        try
+        {
+            await System.IO.File.WriteAllBytesAsync(path, content);
+            var job = await client.AnchorFileAsync(path);
+            Assert.Equal("track-f1", job.Id);
+            Assert.Equal(expected, capturedHash);
+        }
+        finally { System.IO.File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task AnchorFileAsyncDescriptionDefaultsToFilename()
+    {
+        string? capturedDesc = null;
+
+        var client = ClientWith(req =>
+        {
+            var body = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            var doc  = System.Text.Json.JsonDocument.Parse(body);
+            doc.RootElement.TryGetProperty("description", out var p);
+            capturedDesc = p.GetString();
+            return Ok(AnchorAccepted());
+        });
+
+        var path = Path.GetTempFileName();
+        try
+        {
+            await System.IO.File.WriteAllBytesAsync(path, "data"u8.ToArray());
+            await client.AnchorFileAsync(path);
+            Assert.Equal(Path.GetFileName(path), capturedDesc);
+        }
+        finally { System.IO.File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task AnchorFileAsyncCustomDescriptionOverridesFilename()
+    {
+        string? capturedDesc = null;
+
+        var client = ClientWith(req =>
+        {
+            var body = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            var doc  = System.Text.Json.JsonDocument.Parse(body);
+            doc.RootElement.TryGetProperty("description", out var p);
+            capturedDesc = p.GetString();
+            return Ok(AnchorAccepted());
+        });
+
+        var path = Path.GetTempFileName();
+        try
+        {
+            await System.IO.File.WriteAllBytesAsync(path, "data"u8.ToArray());
+            await client.AnchorFileAsync(path, new AnchorOptions { Description = "my-doc" });
+            Assert.Equal("my-doc", capturedDesc);
+        }
+        finally { System.IO.File.Delete(path); }
+    }
 }
