@@ -23,10 +23,11 @@ public sealed class AuthException : TrustBeatException
     public AuthException(string message) : base(message, 401, "UNAUTHORIZED") { }
 }
 
-/// <summary>404 — tracking ID not found.</summary>
+/// <summary>404 — tracking ID not found (or not yet anchored — check Code for "NOT_ANCHORED").</summary>
 public sealed class NotFoundException : TrustBeatException
 {
-    public NotFoundException(string message) : base(message, 404, "NOT_FOUND") { }
+    public NotFoundException(string message, string code = "NOT_FOUND")
+        : base(message, 404, code) { }
 }
 
 /// <summary>402 — monthly quota exceeded.</summary>

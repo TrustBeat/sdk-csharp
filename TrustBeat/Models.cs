@@ -75,3 +75,71 @@ public sealed class AnchorWaitOptions
     /// <summary>Polling interval in seconds. Default: 15.</summary>
     public int PollIntervalSecs { get; init; } = 15;
 }
+
+// ── AI Act Audit models ───────────────────────────────────────────────────────
+
+/// <summary>Time window of a single AI inference call.</summary>
+public sealed record AiTimeEnvelope(
+    /// <summary>ISO 8601 timestamp when inference started.</summary>
+    string StartedAt,
+    /// <summary>ISO 8601 timestamp when inference completed.</summary>
+    string CompletedAt
+);
+
+/// <summary>
+/// Metadata describing an AI decision for EU AI Act Article 12 anchoring.
+/// Privacy-safe: only hashes are sent — raw model inputs and outputs are never uploaded.
+/// </summary>
+public sealed record AiDecisionMetadata(
+    /// <summary>Model identifier, e.g. "claude-3-5-sonnet-20241022".</summary>
+    string         ModelId,
+    /// <summary>AI system name, e.g. "cv-screening-v2".</summary>
+    string         SystemName,
+    /// <summary>AI Act Annex III risk category, e.g. "employment".</summary>
+    string         RiskCategory,
+    /// <summary>Decision type: "classification", "ranking", "recommendation", etc.</summary>
+    string         DecisionType,
+    /// <summary>True if human oversight per AI Act Article 14 was in place.</summary>
+    bool           HumanOversight,
+    AiTimeEnvelope TimeEnvelope,
+    string?        ModelVersion   = null,
+    string?        OperatorId     = null,
+    /// <summary>"production", "staging", or "testing".</summary>
+    string?        DeploymentEnv  = null
+);
+
+/// <summary>Returned immediately (202) when an AI decision is enqueued for anchoring.</summary>
+public sealed record AiDecisionJob(
+    string Id,
+    string InputHash,
+    string OutputHash,
+    /// <summary>SHA-256(input_bytes ‖ output_bytes ‖ UTF-8(JCS(metadata)))</summary>
+    string CombinedHash,
+    string Status,
+    string SubmittedAt,
+    bool   Overage
+);
+
+/// <summary>
+/// Verification result returned once an AI decision has been anchored.
+/// VerificationStatus is "VERIFIED" when the Merkle proof is valid and the
+/// combined hash matches.
+/// </summary>
+public sealed record AiDecisionProof(
+    string             Id,
+    string             InputHash,
+    string             OutputHash,
+    string             CombinedHash,
+    AiDecisionMetadata Metadata,
+    /// <summary>"VERIFIED" or "FAILED".</summary>
+    string             VerificationStatus,
+    string?            AnchoredAt,
+    AnchorProof?       Proof
+);
+
+/// <summary>Options for AI decision anchor requests.</summary>
+public sealed class AiDecisionOptions
+{
+    /// <summary>Optional webhook URL called when anchoring completes.</summary>
+    public string? CallbackUrl { get; init; }
+}

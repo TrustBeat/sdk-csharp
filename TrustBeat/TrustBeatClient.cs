@@ -200,5 +200,94 @@ public sealed class TrustBeatClient : IDisposable
         return await AnchorWaitAsync(job.Id, waitOptions, ct).ConfigureAwait(false);
     }
 
+    // ── AI Act Audit Anchoring ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Submit an AI decision for EU AI Act Article 12 anchoring.
+    /// Privacy-safe: only hashes are sent — raw model inputs and outputs are never uploaded.
+    /// Returns immediately with a tracking ID. Use <see cref="AnchorAiDecisionWaitAsync"/>
+    /// to block until the proof is ready (~10 minutes).
+    /// </summary>
+    public async Task<AiDecisionJob> AnchorAiDecisionAsync(
+        string             inputHash,
+        string             outputHash,
+        AiDecisionMetadata metadata,
+        AiDecisionOptions? options = null,
+        CancellationToken  ct = default)
+    {
+        var te = Json.BuildObject(
+            ("started_at",   metadata.TimeEnvelope.StartedAt),
+            ("completed_at", metadata.TimeEnvelope.CompletedAt));
+
+        var meta = Json.BuildObject(
+            ("model_id",        metadata.ModelId),
+            ("model_version",   metadata.ModelVersion),
+            ("system_name",     metadata.SystemName),
+            ("risk_category",   metadata.RiskCategory),
+            ("decision_type",   metadata.DecisionType),
+            ("human_oversight", metadata.HumanOversight.ToString().ToLower()),
+            ("operator_id",     metadata.OperatorId),
+            ("deployment_env",  metadata.DeploymentEnv));
+        // Inject time_envelope object and fix human_oversight (Json.BuildObject quotes booleans)
+        meta = meta
+            .Replace($"\"human_oversight\":\"{metadata.HumanOversight.ToString().ToLower()}\"",
+                     $"\"human_oversight\":{metadata.HumanOversight.ToString().ToLower()}")
+            .TrimEnd('}') + $",\"time_envelope\":{te}}}";
+
+        var body = $"{{\"input_hash\":\"{inputHash}\",\"output_hash\":\"{outputHash}\",\"metadata\":{meta}}}";
+        if (options?.CallbackUrl is not null)
+            body = body.TrimEnd('}') + $",\"callback_url\":\"{options.CallbackUrl}\"}}";
+
+        var data = await _api.PostAsync("/ai/decisions/anchor", body, ct).ConfigureAwait(false);
+        return ApiClient.ParseAiDecisionJob(data);
+    }
+
+    /// <summary>
+    /// Retrieve the verification result for a previously submitted AI decision.
+    /// Returns <c>null</c> if the decision is still pending (not yet anchored).
+    /// Throws <see cref="NotFoundException"/> if the tracking ID is unknown.
+    /// </summary>
+    public async Task<AiDecisionProof?> GetAiDecisionProofAsync(
+        string trackingId, CancellationToken ct = default)
+    {
+        try
+        {
+            var data = await _api.GetAsync(
+                $"/ai/decisions/verify/{Uri.EscapeDataString(trackingId)}", ct)
+                .ConfigureAwait(false);
+            return ApiClient.ParseAiDecisionProof(data);
+        }
+        catch (NotFoundException e) when (e.Code == "NOT_ANCHORED")
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Poll until the AI decision proof is ready, then return it.
+    /// Throws <see cref="TimeoutException"/> if not ready within the timeout.
+    /// </summary>
+    public async Task<AiDecisionProof> AnchorAiDecisionWaitAsync(
+        string            trackingId,
+        AnchorWaitOptions? options = null,
+        CancellationToken  ct = default)
+    {
+        var opts     = options ?? new AnchorWaitOptions();
+        var deadline = DateTime.UtcNow.AddSeconds(opts.TimeoutSecs);
+
+        while (true)
+        {
+            var proof = await GetAiDecisionProofAsync(trackingId, ct).ConfigureAwait(false);
+            if (proof is not null) return proof;
+
+            if (DateTime.UtcNow >= deadline)
+                throw new TimeoutException(
+                    $"AnchorAiDecisionWait timed out after {opts.TimeoutSecs}s for {trackingId}");
+
+            await Task.Delay(TimeSpan.FromSeconds(opts.PollIntervalSecs), ct)
+                      .ConfigureAwait(false);
+        }
+    }
+
     public void Dispose() => _api.Dispose();
 }

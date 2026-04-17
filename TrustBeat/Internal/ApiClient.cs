@@ -53,15 +53,25 @@ internal sealed class ApiClient : IDisposable
 
         if (response.IsSuccessStatusCode) return data;
 
-        var msg = ExtractErrorMessage(data, (int)response.StatusCode);
+        var msg  = ExtractErrorMessage(data, (int)response.StatusCode);
+        var code = ExtractErrorCode(data);
         throw (int)response.StatusCode switch
         {
             401 => new AuthException(msg),
             402 => new QuotaException(msg),
-            404 => new NotFoundException(msg),
+            404 => new NotFoundException(msg, code ?? "NOT_FOUND"),
             429 => new RateLimitException(msg),
-            _   => new TrustBeatException(msg, (int)response.StatusCode)
+            _   => new TrustBeatException(msg, (int)response.StatusCode, code)
         };
+    }
+
+    private static string? ExtractErrorCode(Dictionary<string, object?> data)
+    {
+        if (data.TryGetValue("error", out var err) &&
+            err is Dictionary<string, object?> errObj &&
+            errObj.TryGetValue("code", out var code) && code is not null)
+            return code.ToString();
+        return null;
     }
 
     private static string ExtractErrorMessage(Dictionary<string, object?> data, int status)
@@ -129,6 +139,52 @@ internal sealed class ApiClient : IDisposable
 
     internal static bool LooksLikeProof(Dictionary<string, object?> d)
         => d.ContainsKey("merkle_root") && d["merkle_root"] is not null;
+
+    internal static AiDecisionJob ParseAiDecisionJob(Dictionary<string, object?> d) => new(
+        Id:           Json.Str(d, "id")!,
+        InputHash:    Json.Str(d, "input_hash")!,
+        OutputHash:   Json.Str(d, "output_hash")!,
+        CombinedHash: Json.Str(d, "combined_hash")!,
+        Status:       Json.Str(d, "status")!,
+        SubmittedAt:  Json.Str(d, "submitted_at")!,
+        Overage:      Json.Bool(d, "overage", false)
+    );
+
+    internal static AiDecisionProof ParseAiDecisionProof(Dictionary<string, object?> d)
+    {
+        var m  = (d["metadata"] as Dictionary<string, object?>)!;
+        var te = (m["time_envelope"] as Dictionary<string, object?>)!;
+
+        var meta = new AiDecisionMetadata(
+            ModelId:        Json.Str(m, "model_id")!,
+            SystemName:     Json.Str(m, "system_name")!,
+            RiskCategory:   Json.Str(m, "risk_category")!,
+            DecisionType:   Json.Str(m, "decision_type")!,
+            HumanOversight: Json.Bool(m, "human_oversight", false),
+            TimeEnvelope:   new AiTimeEnvelope(
+                StartedAt:   Json.Str(te, "started_at")!,
+                CompletedAt: Json.Str(te, "completed_at")!),
+            ModelVersion:  Json.Str(m, "model_version"),
+            OperatorId:    Json.Str(m, "operator_id"),
+            DeploymentEnv: Json.Str(m, "deployment_env")
+        );
+
+        AnchorProof? proof = null;
+        if (d.TryGetValue("proof", out var proofObj) &&
+            proofObj is Dictionary<string, object?> proofDict)
+            proof = ParseProof(proofDict);
+
+        return new AiDecisionProof(
+            Id:                 Json.Str(d, "id")!,
+            InputHash:          Json.Str(d, "input_hash")!,
+            OutputHash:         Json.Str(d, "output_hash")!,
+            CombinedHash:       Json.Str(d, "combined_hash")!,
+            Metadata:           meta,
+            VerificationStatus: Json.Str(d, "verification_status")!,
+            AnchoredAt:         Json.Str(d, "anchored_at"),
+            Proof:              proof
+        );
+    }
 
     public void Dispose() => _http.Dispose();
 }
