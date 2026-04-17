@@ -220,14 +220,18 @@ public sealed class TrustBeatClient : IDisposable
             ("completed_at", metadata.TimeEnvelope.CompletedAt));
 
         var meta = Json.BuildObject(
-            ("model_id",        metadata.ModelId),
-            ("model_version",   metadata.ModelVersion),
-            ("system_name",     metadata.SystemName),
-            ("risk_category",   metadata.RiskCategory),
-            ("decision_type",   metadata.DecisionType),
-            ("human_oversight", metadata.HumanOversight.ToString().ToLower()),
-            ("operator_id",     metadata.OperatorId),
-            ("deployment_env",  metadata.DeploymentEnv));
+            ("model_id",              metadata.ModelId),
+            ("model_version",         metadata.ModelVersion),
+            ("system_name",           metadata.SystemName),
+            ("risk_category",         metadata.RiskCategory),
+            ("decision_type",         metadata.DecisionType),
+            ("human_oversight",       metadata.HumanOversight.ToString().ToLower()),
+            ("operator_id",           metadata.OperatorId),
+            ("deployment_env",        metadata.DeploymentEnv),
+            ("external_ref",          metadata.ExternalRef),
+            ("decision_outcome",      metadata.DecisionOutcome),
+            ("model_artifact_hash",   metadata.ModelArtifactHash),
+            ("data_subject_category", metadata.DataSubjectCategory));
         // Inject time_envelope object and fix human_oversight (Json.BuildObject quotes booleans)
         meta = meta
             .Replace($"\"human_oversight\":\"{metadata.HumanOversight.ToString().ToLower()}\"",

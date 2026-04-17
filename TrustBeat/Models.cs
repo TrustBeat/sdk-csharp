@@ -102,10 +102,18 @@ public sealed record AiDecisionMetadata(
     /// <summary>True if human oversight per AI Act Article 14 was in place.</summary>
     bool           HumanOversight,
     AiTimeEnvelope TimeEnvelope,
-    string?        ModelVersion   = null,
-    string?        OperatorId     = null,
+    string?        ModelVersion         = null,
+    string?        OperatorId           = null,
     /// <summary>"production", "staging", or "testing".</summary>
-    string?        DeploymentEnv  = null
+    string?        DeploymentEnv        = null,
+    /// <summary>Operator's own case/record ID — links proof to a specific decision (Art. 12 traceability).</summary>
+    string?        ExternalRef          = null,
+    /// <summary>Semantic result of the decision, e.g. "rejected". No PII stored.</summary>
+    string?        DecisionOutcome      = null,
+    /// <summary>SHA-256 hex of the deployed model weights/checkpoint.</summary>
+    string?        ModelArtifactHash    = null,
+    /// <summary>Category of data subject, e.g. "job_applicant".</summary>
+    string?        DataSubjectCategory  = null
 );
 
 /// <summary>Returned immediately (202) when an AI decision is enqueued for anchoring.</summary>

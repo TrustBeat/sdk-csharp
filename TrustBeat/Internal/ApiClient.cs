@@ -164,9 +164,13 @@ internal sealed class ApiClient : IDisposable
             TimeEnvelope:   new AiTimeEnvelope(
                 StartedAt:   Json.Str(te, "started_at")!,
                 CompletedAt: Json.Str(te, "completed_at")!),
-            ModelVersion:  Json.Str(m, "model_version"),
-            OperatorId:    Json.Str(m, "operator_id"),
-            DeploymentEnv: Json.Str(m, "deployment_env")
+            ModelVersion:        Json.Str(m, "model_version"),
+            OperatorId:          Json.Str(m, "operator_id"),
+            DeploymentEnv:       Json.Str(m, "deployment_env"),
+            ExternalRef:         Json.Str(m, "external_ref"),
+            DecisionOutcome:     Json.Str(m, "decision_outcome"),
+            ModelArtifactHash:   Json.Str(m, "model_artifact_hash"),
+            DataSubjectCategory: Json.Str(m, "data_subject_category")
         );
 
         AnchorProof? proof = null;
