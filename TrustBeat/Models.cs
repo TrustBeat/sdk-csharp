@@ -151,3 +151,74 @@ public sealed class AiDecisionOptions
     /// <summary>Optional webhook URL called when anchoring completes.</summary>
     public string? CallbackUrl { get; init; }
 }
+
+// ── Verification models ───────────────────────────────────────────────────────
+
+/// <summary>Per-signature result within a <see cref="VerificationReport"/>.</summary>
+public sealed record SignatureDetail(
+    int     Index,
+    bool    Qualified,
+    bool    OnEutl,
+    bool    Qscd,
+    string  RevocationStatus,
+    string  SignatureLevel,
+    bool    TimestampPresent,
+    string  Verdict,
+    string? SignerName        = null,
+    string? SignerEmail       = null,
+    string? SigningTime       = null,
+    string? CertSerial        = null,
+    string? CertFingerprint   = null,
+    string? CertIssuer        = null,
+    string? RevocationTime    = null,
+    string? OcspResponse      = null,
+    string? TimestampSerial   = null
+);
+
+/// <summary>
+/// Full eIDAS signature verification report returned by
+/// <see cref="TrustBeatClient.VerifySignatureAsync"/>.
+/// </summary>
+public sealed record VerificationReport(
+    string                 Verdict,
+    IReadOnlyList<SignatureDetail> Signatures,
+    string                 DocumentHash,
+    string                 CheckedAt,
+    string?                EutlVersion,
+    string?                TrackingId
+);
+
+/// <summary>
+/// Returned immediately (202) when
+/// <see cref="TrustBeatClient.VerifyAndAnchorAsync"/> is called.
+/// </summary>
+public sealed record VerificationJob(
+    string TrackingId,
+    string DocumentHash,
+    string Status,
+    string SubmittedAt
+);
+
+/// <summary>Result of <see cref="TrustBeatClient.ValidateCertificateAsync"/>.</summary>
+public sealed record CertificateValidationResult(
+    string                 Subject,
+    string                 Issuer,
+    string                 Serial,
+    string                 NotBefore,
+    string                 NotAfter,
+    bool                   Qualified,
+    bool                   OnEutl,
+    bool                   Qscd,
+    string                 RevocationStatus,
+    string?                RevocationTime,
+    IReadOnlyList<string>  KeyUsage,
+    bool                   Valid,
+    string                 ValidatedAt
+);
+
+/// <summary>Options for verification requests.</summary>
+public sealed class VerifyOptions
+{
+    /// <summary>Optional webhook URL called when anchoring completes.</summary>
+    public string? CallbackUrl { get; init; }
+}

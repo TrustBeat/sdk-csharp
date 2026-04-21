@@ -293,5 +293,68 @@ public sealed class TrustBeatClient : IDisposable
         }
     }
 
+    // ── Signature & certificate verification ─────────────────────────────────
+
+    /// <summary>
+    /// Verify eIDAS electronic signatures on a document.
+    /// Validates PAdES (PDF), CAdES (CMS), or XAdES (XML) against the EU Trusted List.
+    /// </summary>
+    /// <param name="document">Raw document bytes.</param>
+    /// <param name="format">"pades", "cades", or "xades".</param>
+    /// <param name="options">Optional verify options (callback URL, etc.).</param>
+    public async Task<VerificationReport> VerifySignatureAsync(
+        byte[]         document,
+        string         format,
+        VerifyOptions? options = null,
+        CancellationToken ct  = default)
+    {
+        var body = Json.BuildObject(
+            ("document_base64", Convert.ToBase64String(document)),
+            ("format",          format),
+            ("callback_url",    options?.CallbackUrl));
+        var data = await _api.PostAsync("/verify/signature", body, ct).ConfigureAwait(false);
+        return ApiClient.ParseVerificationReport(data);
+    }
+
+    /// <summary>
+    /// Verify eIDAS signatures and anchor the verification event.
+    /// Returns immediately (202) with a tracking ID.
+    /// Use <see cref="GetVerificationAsync"/> to retrieve the completed report.
+    /// </summary>
+    public async Task<VerificationJob> VerifyAndAnchorAsync(
+        byte[]         document,
+        string         format,
+        VerifyOptions? options = null,
+        CancellationToken ct  = default)
+    {
+        var body = Json.BuildObject(
+            ("document_base64", Convert.ToBase64String(document)),
+            ("format",          format),
+            ("callback_url",    options?.CallbackUrl));
+        var data = await _api.PostAsync("/verify/signature/anchored", body, ct).ConfigureAwait(false);
+        return ApiClient.ParseVerificationJob(data);
+    }
+
+    /// <summary>Retrieve a saved verification report by tracking ID.</summary>
+    public async Task<VerificationReport> GetVerificationAsync(
+        string trackingId, CancellationToken ct = default)
+    {
+        var data = await _api.GetAsync(
+            $"/verify/{Uri.EscapeDataString(trackingId)}", ct).ConfigureAwait(false);
+        return ApiClient.ParseVerificationReport(data);
+    }
+
+    /// <summary>
+    /// Validate a standalone X.509 certificate (DER or PEM) against the EU Trusted List.
+    /// </summary>
+    public async Task<CertificateValidationResult> ValidateCertificateAsync(
+        byte[] certificate, CancellationToken ct = default)
+    {
+        var body = Json.BuildObject(
+            ("certificate_base64", Convert.ToBase64String(certificate)));
+        var data = await _api.PostAsync("/validate/certificate", body, ct).ConfigureAwait(false);
+        return ApiClient.ParseCertValidationResult(data);
+    }
+
     public void Dispose() => _api.Dispose();
 }

@@ -190,5 +190,72 @@ internal sealed class ApiClient : IDisposable
         );
     }
 
+    // ── Verification parsers ──────────────────────────────────────────────────
+
+    internal static SignatureDetail ParseSignatureDetail(Dictionary<string, object?> d) => new(
+        Index:            Json.Int(d, "index"),
+        Qualified:        Json.Bool(d, "qualified", false),
+        OnEutl:           Json.Bool(d, "on_eutl", false),
+        Qscd:             Json.Bool(d, "qscd", false),
+        RevocationStatus: Json.Str(d, "revocation_status")!,
+        SignatureLevel:   Json.Str(d, "signature_level")!,
+        TimestampPresent: Json.Bool(d, "timestamp_present", false),
+        Verdict:          Json.Str(d, "verdict")!,
+        SignerName:        Json.Str(d, "signer_name"),
+        SignerEmail:       Json.Str(d, "signer_email"),
+        SigningTime:       Json.Str(d, "signing_time"),
+        CertSerial:        Json.Str(d, "cert_serial"),
+        CertFingerprint:   Json.Str(d, "cert_fingerprint"),
+        CertIssuer:        Json.Str(d, "cert_issuer"),
+        RevocationTime:    Json.Str(d, "revocation_time"),
+        OcspResponse:      Json.Str(d, "ocsp_response"),
+        TimestampSerial:   Json.Str(d, "timestamp_serial")
+    );
+
+    internal static VerificationReport ParseVerificationReport(Dictionary<string, object?> d)
+    {
+        var signatures = Json.Array(d, "signatures")
+                             .Select(ParseSignatureDetail)
+                             .ToList()
+                             .AsReadOnly();
+        return new VerificationReport(
+            Verdict:      Json.Str(d, "verdict")!,
+            Signatures:   signatures,
+            DocumentHash: Json.Str(d, "document_hash")!,
+            CheckedAt:    Json.Str(d, "checked_at")!,
+            EutlVersion:  Json.Str(d, "eutl_version"),
+            TrackingId:   Json.Str(d, "tracking_id")
+        );
+    }
+
+    internal static VerificationJob ParseVerificationJob(Dictionary<string, object?> d) => new(
+        TrackingId:   Json.Str(d, "tracking_id")!,
+        DocumentHash: Json.Str(d, "document_hash")!,
+        Status:       Json.Str(d, "status")!,
+        SubmittedAt:  Json.Str(d, "submitted_at")!
+    );
+
+    internal static CertificateValidationResult ParseCertValidationResult(Dictionary<string, object?> d)
+    {
+        var keyUsageRaw = d.TryGetValue("key_usage", out var ku) && ku is List<object?> list
+            ? list.OfType<string>().ToList().AsReadOnly()
+            : (IReadOnlyList<string>) Array.Empty<string>();
+        return new CertificateValidationResult(
+            Subject:          Json.Str(d, "subject")!,
+            Issuer:           Json.Str(d, "issuer")!,
+            Serial:           Json.Str(d, "serial")!,
+            NotBefore:        Json.Str(d, "not_before")!,
+            NotAfter:         Json.Str(d, "not_after")!,
+            Qualified:        Json.Bool(d, "qualified", false),
+            OnEutl:           Json.Bool(d, "on_eutl", false),
+            Qscd:             Json.Bool(d, "qscd", false),
+            RevocationStatus: Json.Str(d, "revocation_status")!,
+            RevocationTime:   Json.Str(d, "revocation_time"),
+            KeyUsage:         keyUsageRaw,
+            Valid:             Json.Bool(d, "valid", false),
+            ValidatedAt:      Json.Str(d, "validated_at")!
+        );
+    }
+
     public void Dispose() => _http.Dispose();
 }
