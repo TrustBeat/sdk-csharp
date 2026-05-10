@@ -121,22 +121,6 @@ internal sealed class ApiClient : IDisposable
         );
     }
 
-    internal static TimestampResult ParseTimestamp(Dictionary<string, object?> d)
-    {
-        var tokenB64 = Json.Str(d, "token");
-        var token    = tokenB64 is not null ? Convert.FromBase64String(tokenB64) : [];
-        return new TimestampResult(
-            Id:            Json.Str(d, "id")!,
-            Hash:          Json.Str(d, "hash")!,
-            HashAlgorithm: Json.Str(d, "hash_algorithm")!,
-            Token:         token,
-            TokenFormat:   Json.Str(d, "token_format")!,
-            TsaSerial:     Json.Str(d, "tsa_serial")!,
-            Provider:      Json.Str(d, "provider")!,
-            TimestampedAt: Json.Str(d, "timestamped_at")!
-        );
-    }
-
     internal static bool LooksLikeProof(Dictionary<string, object?> d)
         => d.ContainsKey("merkle_root") && d["merkle_root"] is not null;
 

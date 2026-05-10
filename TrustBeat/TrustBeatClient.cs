@@ -129,22 +129,6 @@ public sealed class TrustBeatClient : IDisposable
     /// </summary>
     public bool Verify(AnchorProof proof) => MerkleVerifier.Verify(proof);
 
-    /// <summary>Request a direct (non-Merkle) qualified timestamp for a single hash.</summary>
-    public async Task<TimestampResult> TimestampAsync(
-        string hash,
-        AnchorOptions? options = null,
-        CancellationToken ct = default)
-    {
-        var body = Json.BuildObject(
-            ("hash",           hash),
-            ("hash_algorithm", "sha256"),
-            ("client_ref",     options?.ClientRef),
-            ("description",    options?.Description));
-
-        var data = await _api.PostAsync("/timestamps", body, ct).ConfigureAwait(false);
-        return ApiClient.ParseTimestamp(data);
-    }
-
     // ── Static hashing utilities ───────────────────────────────────────────────
 
     /// <summary>SHA-256 hash of a byte array, as a lowercase hex string.</summary>

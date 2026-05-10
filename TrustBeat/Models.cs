@@ -40,22 +40,6 @@ public sealed record AnchorProof(
     string?          Description
 );
 
-/// <summary>
-/// Result of a direct (non-Merkle) qualified timestamp call.
-/// Returned by <see cref="TrustBeatClient.TimestampAsync"/>.
-/// </summary>
-public sealed record TimestampResult(
-    string Id,
-    string Hash,
-    string HashAlgorithm,
-    /// <summary>Raw DER-encoded RFC 3161 TimeStampToken bytes.</summary>
-    byte[] Token,
-    string TokenFormat,
-    string TsaSerial,
-    string Provider,
-    string TimestampedAt
-);
-
 /// <summary>Options for anchor and timestamp requests.</summary>
 public sealed class AnchorOptions
 {
