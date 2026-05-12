@@ -28,9 +28,6 @@ bool valid = tb.Verify(proof);
 var job = await tb.AnchorAsync("e3b0c44298fc1c149afb4c8996fb92427ae41e4649b934ca495991b7852b855");
 var waited = await tb.AnchorWaitAsync(job.Id);  // polls up to 11 min
 
-// Direct qualified timestamp (1 credit, instant)
-var ts = await tb.TimestampAsync("e3b0c44298fc1c149afb4c8996fb92427ae41e4649b934ca495991b7852b855");
-await File.WriteAllBytesAsync("timestamp.tsr", ts.Token);  // RFC 3161 DER token
 ```
 
 ## Requirements
