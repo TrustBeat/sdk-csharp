@@ -63,13 +63,17 @@ public sealed class TrustBeatClient : IDisposable
         return ApiClient.ParseAnchorJob(data);
     }
 
-    /// <summary>Submit up to 100 SHA-256 hashes in a single batch.</summary>
-    public async Task<IReadOnlyList<AnchorJob>> AnchorBatchAsync(
+    /// <summary>
+    /// Submit up to 100 SHA-256 hashes in a single batch.
+    /// Returns a <see cref="BatchSubmission"/> grouping all items under one SubmissionId.
+    /// Use <see cref="AnchorBatchWaitAsync"/> to block until all proofs are ready.
+    /// </summary>
+    public async Task<BatchSubmission> AnchorBatchAsync(
         IReadOnlyList<string> hashes,
         AnchorOptions? options = null,
         CancellationToken ct = default)
     {
-        if (hashes.Count == 0) return [];
+        if (hashes.Count == 0) return new BatchSubmission("", []);
         if (hashes.Count > 100)
             throw new ArgumentException("AnchorBatch: maximum 100 hashes per request");
 
@@ -82,7 +86,58 @@ public sealed class TrustBeatClient : IDisposable
             ("description", options?.Description));
 
         var data = await _api.PostAsync("/anchors/batch", body, ct).ConfigureAwait(false);
-        return Json.Array(data, "accepted").Select(ApiClient.ParseAnchorJob).ToList();
+        var submissionId = Json.Str(data, "submission_id") ?? "";
+        var jobs = Json.Array(data, "accepted").Select(ApiClient.ParseAnchorJob).ToList();
+        return new BatchSubmission(submissionId, jobs);
+    }
+
+    /// <summary>Return anchored/pending counts for a batch submission.</summary>
+    public async Task<BatchStatus> GetBatchStatusAsync(
+        string submissionId, CancellationToken ct = default)
+    {
+        var path = "/anchors/batch/" + Uri.EscapeDataString(submissionId) + "/status";
+        var data = await _api.GetAsync(path, ct).ConfigureAwait(false);
+        return new BatchStatus(
+            SubmissionId: Json.Str(data, "submission_id") ?? submissionId,
+            Total:        Json.Int(data, "total"),
+            Anchored:     Json.Int(data, "anchored"),
+            Pending:      Json.Int(data, "pending")
+        );
+    }
+
+    /// <summary>Return all anchored inclusion proofs for a batch submission.</summary>
+    public async Task<IReadOnlyList<AnchorProof>> GetBatchProofsAsync(
+        string submissionId, CancellationToken ct = default)
+    {
+        var path = "/anchors/batch/" + Uri.EscapeDataString(submissionId) + "/proofs";
+        var data = await _api.GetAsync(path, ct).ConfigureAwait(false);
+        return Json.Array(data, "proofs").Select(ApiClient.ParseProof).ToList();
+    }
+
+    /// <summary>
+    /// Poll until all hashes in a batch submission are anchored, then return all proofs.
+    /// Throws <see cref="TimeoutException"/> if not complete within the timeout.
+    /// </summary>
+    public async Task<IReadOnlyList<AnchorProof>> AnchorBatchWaitAsync(
+        BatchSubmission submission,
+        AnchorWaitOptions? options = null,
+        CancellationToken ct = default)
+    {
+        var opts     = options ?? new AnchorWaitOptions();
+        var deadline = DateTime.UtcNow.AddSeconds(opts.TimeoutSecs);
+
+        while (true)
+        {
+            var status = await GetBatchStatusAsync(submission.SubmissionId, ct).ConfigureAwait(false);
+            if (status.Pending == 0 && status.Total > 0)
+                return await GetBatchProofsAsync(submission.SubmissionId, ct).ConfigureAwait(false);
+
+            if (DateTime.UtcNow >= deadline)
+                throw new TimeoutException(
+                    $"AnchorBatchWait timed out after {opts.TimeoutSecs}s for {submission.SubmissionId}");
+
+            await Task.Delay(TimeSpan.FromSeconds(opts.PollIntervalSecs), ct).ConfigureAwait(false);
+        }
     }
 
     /// <summary>

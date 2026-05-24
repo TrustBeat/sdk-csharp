@@ -60,6 +60,23 @@ public sealed class AnchorWaitOptions
     public int PollIntervalSecs { get; init; } = 15;
 }
 
+/// <summary>
+/// Returned by <see cref="TrustBeatClient.AnchorBatchAsync"/> — groups all submitted items
+/// under a single <see cref="SubmissionId"/> for status polling and proof retrieval.
+/// </summary>
+public sealed record BatchSubmission(
+    string                        SubmissionId,
+    IReadOnlyList<AnchorJob>      Items
+);
+
+/// <summary>Returned by <see cref="TrustBeatClient.GetBatchStatusAsync"/>.</summary>
+public sealed record BatchStatus(
+    string SubmissionId,
+    int    Total,
+    int    Anchored,
+    int    Pending
+);
+
 // ── AI Act Audit models ───────────────────────────────────────────────────────
 
 /// <summary>Time window of a single AI inference call.</summary>
