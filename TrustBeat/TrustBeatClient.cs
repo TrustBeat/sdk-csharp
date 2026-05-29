@@ -1,6 +1,8 @@
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Collections.Generic;
+using System.Linq;
 using TrustBeat.Internal;
 
 namespace TrustBeat;
@@ -393,6 +395,86 @@ public sealed class TrustBeatClient : IDisposable
             ("certificate_base64", Convert.ToBase64String(certificate)));
         var data = await _api.PostAsync("/validate/certificate", body, ct).ConfigureAwait(false);
         return ApiClient.ParseCertValidationResult(data);
+    }
+
+    // ── Audit Trail ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Submit a single audit event for tamper-evident Merkle anchoring.
+    /// Returns the <c>eventId</c> immediately (202 Accepted).
+    /// </summary>
+    /// <param name="trailCategory">Logical trail, e.g. "financial".</param>
+    /// <param name="actor">Who performed the action, e.g. "user:42".</param>
+    /// <param name="action">Machine-readable verb, e.g. "payment.approved".</param>
+    /// <param name="ts">ISO 8601 timestamp of when the event occurred.</param>
+    public async Task<string> SubmitAuditEventAsync(
+        string trailCategory, string actor, string action, string ts,
+        CancellationToken ct = default)
+    {
+        var body = Json.BuildObject(
+            ("trail_category", trailCategory),
+            ("actor",          actor),
+            ("action",         action),
+            ("ts",             ts));
+        var data = await _api.PostAsync("/audit/events", body, ct).ConfigureAwait(false);
+        return (string) data["event_id"]!;
+    }
+
+    /// <summary>
+    /// Fetch the Merkle inclusion proof for an anchored audit event.
+    /// Returns <c>null</c> if the event is not yet anchored.
+    /// </summary>
+    public async Task<AuditEventProof?> GetAuditEventProofAsync(
+        string eventId, CancellationToken ct = default)
+    {
+        var data = await _api.GetAsync($"/audit/events/{eventId}/proof", ct).ConfigureAwait(false);
+        if (data.TryGetValue("status", out var s) && s?.ToString() == "pending") return null;
+        return ApiClient.ParseAuditEventProof(data);
+    }
+
+    /// <summary>
+    /// Query audit events with optional filters. Returns one page of results.
+    /// </summary>
+    public async Task<IReadOnlyList<AuditEvent>> ListAuditEventsAsync(
+        string? trailCategory = null, int page = 1, int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var qs = $"/audit/events?page={page}&page_size={pageSize}";
+        if (trailCategory is not null) qs += $"&trail_category={Uri.EscapeDataString(trailCategory)}";
+        var data = await _api.GetAsync(qs, ct).ConfigureAwait(false);
+        var events = data.TryGetValue("events", out var ev) && ev is List<object?> list
+            ? list.OfType<Dictionary<string, object?>>().Select(ApiClient.ParseAuditEvent).ToList().AsReadOnly()
+            : (IReadOnlyList<AuditEvent>) Array.Empty<AuditEvent>();
+        return events;
+    }
+
+    /// <summary>
+    /// Export audit events as a court-admissible ZIP package.
+    /// Blocks until the export job completes (polls every 3 s, up to 5 min).
+    /// </summary>
+    public async Task<byte[]> ExportAuditEventsAsync(
+        string? trailCategory = null, string? from = null, string? to = null,
+        CancellationToken ct = default)
+    {
+        var pairs = new List<(string, object?)>();
+        if (trailCategory is not null) pairs.Add(("trail_category", trailCategory));
+        if (from is not null)          pairs.Add(("from", from));
+        if (to is not null)            pairs.Add(("to",   to));
+        var body = Json.BuildObject(pairs.ToArray());
+        var jobData = await _api.PostAsync("/audit/export", body, ct).ConfigureAwait(false);
+        var jobId = (string) jobData["job_id"]!;
+        var deadline = DateTimeOffset.UtcNow.AddMinutes(5);
+        while (true)
+        {
+            var (contentType, bytes) = await _api.GetRawAsync($"/audit/export/{jobId}", ct).ConfigureAwait(false);
+            if (contentType.StartsWith("application/zip")) return bytes;
+            var status = Json.ParseObject(System.Text.Encoding.UTF8.GetString(bytes));
+            var s = status.TryGetValue("status", out var sv) ? sv?.ToString() : "";
+            if (s == "failed") throw new TrustBeatException(
+                status.TryGetValue("error", out var err) ? err?.ToString() ?? "Export failed" : "Export failed", 0, null);
+            if (DateTimeOffset.UtcNow > deadline) throw new TrustBeatException($"Export job {jobId} timed out", 0, null);
+            await Task.Delay(3000, ct).ConfigureAwait(false);
+        }
     }
 
     public void Dispose() => _api.Dispose();

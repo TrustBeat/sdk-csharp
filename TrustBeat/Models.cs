@@ -223,3 +223,46 @@ public sealed class VerifyOptions
     /// <summary>Optional webhook URL called when anchoring completes.</summary>
     public string? CallbackUrl { get; init; }
 }
+
+// ── Audit Trail models ────────────────────────────────────────────────────────
+
+/// <summary>One step in an audit event Merkle inclusion proof.</summary>
+/// <param name="Sibling">Hex-encoded SHA-256 hash of the sibling node.</param>
+/// <param name="Side">"left" or "right".</param>
+public sealed record AuditProofStep(string Sibling, string Side);
+
+/// <summary>A single audit event as returned by the list endpoint.</summary>
+public sealed record AuditEvent(
+    string  EventId,
+    string  TrailCategory,
+    string  Actor,
+    string  Action,
+    /// <summary>ISO 8601 — when the event occurred.</summary>
+    string  Ts,
+    /// <summary>ISO 8601 — when TrustBeat received the event.</summary>
+    string  ReceivedAt,
+    bool    Anchored,
+    string? System,
+    string? Resource
+);
+
+/// <summary>Full Merkle inclusion proof for an anchored audit event.</summary>
+public sealed record AuditEventProof(
+    string                   EventId,
+    string                   CanonicalHash,
+    string                   BatchId,
+    int                      LeafIndex,
+    IReadOnlyList<AuditProofStep> MerklePath,
+    string                   AnchoredAt
+);
+
+/// <summary>
+/// Returned immediately (202) when an audit export job is created.
+/// Poll until <see cref="Status"/> is "ready" or "failed".
+/// </summary>
+public sealed record AuditExportJob(
+    string  JobId,
+    string  Status,
+    int?    EventCount,
+    string? Error
+);

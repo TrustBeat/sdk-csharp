@@ -241,5 +241,54 @@ internal sealed class ApiClient : IDisposable
         );
     }
 
+    // returns (contentType, bytes) — caller decides
+    internal async Task<(string ContentType, byte[] Body)> GetRawAsync(string path, CancellationToken ct)
+    {
+        var response = await _http.GetAsync(_baseUrl + path, ct).ConfigureAwait(false);
+        var ct2 = response.Content.Headers.ContentType?.MediaType ?? "";
+        var bytes = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+        return (ct2, bytes);
+    }
+
+    internal static AuditEvent ParseAuditEvent(Dictionary<string, object?> d) => new(
+        EventId:       Json.Str(d, "event_id")!,
+        TrailCategory: Json.Str(d, "trail_category")!,
+        Actor:         Json.Str(d, "actor")!,
+        Action:        Json.Str(d, "action")!,
+        Ts:            Json.Str(d, "ts")!,
+        ReceivedAt:    Json.Str(d, "received_at")!,
+        Anchored:      Json.Bool(d, "anchored", false),
+        System:        Json.Str(d, "system"),
+        Resource:      Json.Str(d, "resource")
+    );
+
+    internal static AuditEventProof ParseAuditEventProof(Dictionary<string, object?> d)
+    {
+        var rawPath = d.TryGetValue("merkle_path", out var mp) && mp is List<object?> list
+            ? list.OfType<Dictionary<string, object?>>()
+                  .Select(s => new AuditProofStep(Json.Str(s, "sibling")!, Json.Str(s, "side")!))
+                  .ToList().AsReadOnly()
+            : (IReadOnlyList<AuditProofStep>) Array.Empty<AuditProofStep>();
+        return new AuditEventProof(
+            EventId:       Json.Str(d, "event_id")!,
+            CanonicalHash: Json.Str(d, "canonical_hash")!,
+            BatchId:       Json.Str(d, "batch_id")!,
+            LeafIndex:     Json.Int(d, "leaf_index"),
+            MerklePath:    rawPath,
+            AnchoredAt:    Json.Str(d, "anchored_at")!
+        );
+    }
+
+    internal static AuditExportJob ParseAuditExportJob(Dictionary<string, object?> d)
+    {
+        var ec = d.TryGetValue("event_count", out var ecv) && ecv is not null ? (int?) Json.Int(d, "event_count") : null;
+        return new AuditExportJob(
+            JobId:      Json.Str(d, "job_id")!,
+            Status:     Json.Str(d, "status")!,
+            EventCount: ec,
+            Error:      Json.Str(d, "error")
+        );
+    }
+
     public void Dispose() => _http.Dispose();
 }
