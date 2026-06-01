@@ -103,14 +103,15 @@ public class TrustBeatClientTests
     // ── anchorBatch() ─────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task AnchorBatchReturnsListOfJobs()
+    public async Task AnchorBatchReturnsBatchSubmission()
     {
         var client = ClientWith(_ => Ok(
-            $$"""{"accepted":[{{AnchorAccepted("t1")}},{{AnchorAccepted("t2")}}],"total":2}"""));
-        var jobs = await client.AnchorBatchAsync(["a".PadRight(64, 'a'), "b".PadRight(64, 'b')]);
-        Assert.Equal(2, jobs.Count);
-        Assert.Equal("t1", jobs[0].Id);
-        Assert.Equal("t2", jobs[1].Id);
+            $$"""{"submission_id":"sub-abc","accepted":[{{AnchorAccepted("t1")}},{{AnchorAccepted("t2")}}],"total":2}"""));
+        var result = await client.AnchorBatchAsync(["a".PadRight(64, 'a'), "b".PadRight(64, 'b')]);
+        Assert.Equal("sub-abc", result.SubmissionId);
+        Assert.Equal(2, result.Items.Count);
+        Assert.Equal("t1", result.Items[0].Id);
+        Assert.Equal("t2", result.Items[1].Id);
     }
 
     [Fact]
@@ -119,7 +120,7 @@ public class TrustBeatClientTests
         bool called = false;
         var client  = ClientWith(_ => { called = true; return Ok("{}"); });
         var result  = await client.AnchorBatchAsync([]);
-        Assert.Empty(result);
+        Assert.Empty(result.Items);
         Assert.False(called);
     }
 
