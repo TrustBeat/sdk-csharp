@@ -57,11 +57,11 @@ public sealed class TrustBeatClient : IDisposable
     {
         var body = Json.BuildObject(
             ("hash",           hash),
-            ("hash_algorithm", "sha256"),
+            ("hash_algorithm", "SHA-256"),
             ("client_ref",     options?.ClientRef),
             ("description",    options?.Description));
 
-        var data = await _api.PostAsync("/anchors", body, ct).ConfigureAwait(false);
+        var data = await _api.PostAsync("/anchor", body, ct).ConfigureAwait(false);
         return ApiClient.ParseAnchorJob(data);
     }
 
@@ -80,14 +80,14 @@ public sealed class TrustBeatClient : IDisposable
             throw new ArgumentException("AnchorBatch: maximum 100 hashes per request");
 
         var items = "[" + string.Join(",",
-            hashes.Select(h => Json.BuildObject(("hash", h), ("hash_algorithm", "sha256")))) + "]";
+            hashes.Select(h => Json.BuildObject(("hash", h), ("hash_algorithm", "SHA-256")))) + "]";
 
         var body = Json.BuildObject(
             ("hashes",      new Json.RawJson(items)),
             ("client_ref",  options?.ClientRef),
             ("description", options?.Description));
 
-        var data = await _api.PostAsync("/anchors/batch", body, ct).ConfigureAwait(false);
+        var data = await _api.PostAsync("/anchor/batch", body, ct).ConfigureAwait(false);
         var submissionId = Json.Str(data, "submission_id") ?? "";
         var jobs = Json.Array(data, "accepted").Select(ApiClient.ParseAnchorJob).ToList();
         return new BatchSubmission(submissionId, jobs);
@@ -97,7 +97,7 @@ public sealed class TrustBeatClient : IDisposable
     public async Task<BatchStatus> GetBatchStatusAsync(
         string submissionId, CancellationToken ct = default)
     {
-        var path = "/anchors/batch/" + Uri.EscapeDataString(submissionId) + "/status";
+        var path = "/anchor/batch/" + Uri.EscapeDataString(submissionId) + "/status";
         var data = await _api.GetAsync(path, ct).ConfigureAwait(false);
         return new BatchStatus(
             SubmissionId: Json.Str(data, "submission_id") ?? submissionId,
@@ -111,7 +111,7 @@ public sealed class TrustBeatClient : IDisposable
     public async Task<IReadOnlyList<AnchorProof>> GetBatchProofsAsync(
         string submissionId, CancellationToken ct = default)
     {
-        var path = "/anchors/batch/" + Uri.EscapeDataString(submissionId) + "/proofs";
+        var path = "/anchor/batch/" + Uri.EscapeDataString(submissionId) + "/proofs";
         var data = await _api.GetAsync(path, ct).ConfigureAwait(false);
         return Json.Array(data, "proofs").Select(ApiClient.ParseProof).ToList();
     }
@@ -148,7 +148,7 @@ public sealed class TrustBeatClient : IDisposable
     /// </summary>
     public async Task<AnchorProof?> GetProofAsync(string trackingId, CancellationToken ct = default)
     {
-        var path = "/anchors/" + Uri.EscapeDataString(trackingId);
+        var path = "/anchor/" + Uri.EscapeDataString(trackingId) + "/proof";
         var data = await _api.GetAsync(path, ct).ConfigureAwait(false);
         return ApiClient.LooksLikeProof(data) ? ApiClient.ParseProof(data) : null;
     }

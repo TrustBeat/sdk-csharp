@@ -86,7 +86,7 @@ public class TrustBeatClientTests
     }
 
     [Fact]
-    public async Task AnchorSendsPostToAnchorsEndpoint()
+    public async Task AnchorSendsPostToAnchorEndpoint()
     {
         string? method = null; string? path = null;
         var client = ClientWith(req =>
@@ -97,7 +97,7 @@ public class TrustBeatClientTests
         });
         await client.AnchorAsync("a".PadRight(64, 'a'));
         Assert.Equal("POST",     method);
-        Assert.Equal("/v1/anchors", path);
+        Assert.Equal("/v1/anchor", path);
     }
 
     // ── anchorBatch() ─────────────────────────────────────────────────────────
