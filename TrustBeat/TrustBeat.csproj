@@ -6,16 +6,25 @@
     <Nullable>enable</Nullable>
     <LangVersion>12</LangVersion>
 
-    <!-- NuGet metadata (not published yet) -->
+    <!-- NuGet package metadata -->
     <PackageId>TrustBeat</PackageId>
     <Version>0.1.0</Version>
     <Authors>TrustBeat</Authors>
+    <Company>Trustbeat s.r.o.</Company>
     <Description>TrustBeat SDK — qualified timestamping and Merkle anchoring</Description>
     <PackageProjectUrl>https://trustbeat.eu</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>eidas;timestamp;rfc3161;merkle;trust;anchoring;qualified</PackageTags>
+    <RepositoryUrl>https://github.com/TrustBeat/sdk-csharp</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
 
     <!-- Zero runtime dependencies — BCL only (System.Net.Http, System.Security.Cryptography) -->
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
