@@ -3,7 +3,10 @@
 # This workflow lives at the root of TrustBeat/sdk-csharp (mirrored from
 # eu-security-app sdk/csharp). It does NOT run in the monorepo.
 #
-# Auth: NUGET_API_KEY secret (nuget.org API key scoped to push TrustBeat).
+# Auth: nuget.org Trusted Publishing (OIDC). No stored secret — NuGet/login
+# exchanges a short-lived GitHub OIDC token for a 1-hour NuGet API key. Requires
+# a trusted publishing policy on nuget.org: owner radim.dejmek, repo
+# TrustBeat/sdk-csharp, workflow file publish.yml.
 name: Publish to NuGet
 
 on:
@@ -17,6 +20,9 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # request the GitHub OIDC token for NuGet trusted publishing
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
@@ -38,9 +44,17 @@ jobs:
       - name: Pack
         run: dotnet pack TrustBeat/TrustBeat.csproj -c Release -o artifacts
 
+      # Exchange the GitHub OIDC token for a short-lived (1h) NuGet API key.
+      # Done right before push so the key doesn't expire mid-run.
+      - name: NuGet login (OIDC → temp API key)
+        id: login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841  # v1.2.0
+        with:
+          user: radim.dejmek   # nuget.org username (profile name), NOT the email
+
       - name: Publish to NuGet
         run: >
           dotnet nuget push "artifacts/*.nupkg"
-          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
           --source https://api.nuget.org/v3/index.json
           --skip-duplicate
