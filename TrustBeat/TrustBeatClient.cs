@@ -300,6 +300,11 @@ public sealed class TrustBeatClient : IDisposable
             var data = await _api.GetAsync(
                 $"/ai/decisions/verify/{Uri.EscapeDataString(trackingId)}", ct)
                 .ConfigureAwait(false);
+            // Before anchoring the API returns 200 with verification_status
+            // "PENDING" and no proof — treat that as "not ready yet" so pollers
+            // keep waiting.
+            if (data.TryGetValue("verification_status", out var vs) && vs?.ToString() == "PENDING")
+                return null;
             return ApiClient.ParseAiDecisionProof(data);
         }
         catch (NotFoundException e) when (e.Code == "NOT_ANCHORED")
@@ -453,13 +458,13 @@ public sealed class TrustBeatClient : IDisposable
     /// Blocks until the export job completes (polls every 3 s, up to 5 min).
     /// </summary>
     public async Task<byte[]> ExportAuditEventsAsync(
-        string? trailCategory = null, string? from = null, string? to = null,
+        string from, string to, string? trailCategory = null,
         CancellationToken ct = default)
     {
-        var pairs = new List<(string, object?)>();
+        if (string.IsNullOrEmpty(from) || string.IsNullOrEmpty(to))
+            throw new ArgumentException("ExportAuditEventsAsync requires both from and to.");
+        var pairs = new List<(string, object?)> { ("from", from), ("to", to) };
         if (trailCategory is not null) pairs.Add(("trail_category", trailCategory));
-        if (from is not null)          pairs.Add(("from", from));
-        if (to is not null)            pairs.Add(("to",   to));
         var body = Json.BuildObject(pairs.ToArray());
         var jobData = await _api.PostAsync("/audit/export", body, ct).ConfigureAwait(false);
         var jobId = (string) jobData["job_id"]!;

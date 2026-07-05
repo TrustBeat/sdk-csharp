@@ -348,4 +348,30 @@ public class TrustBeatClientTests
         }
         finally { System.IO.File.Delete(path); }
     }
+
+    // ── getAiDecisionProof() pending ────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetAiDecisionProofReturnsNullWhilePending()
+    {
+        // Before anchoring the API returns 200 with verification_status "PENDING".
+        var client = ClientWith(_ => Ok(
+            """{"id":"ai-1","input_hash":"","output_hash":"","combined_hash":"","metadata":{},"verification_status":"PENDING","anchored_at":null,"proof":null}"""));
+        var proof = await client.GetAiDecisionProofAsync("ai-1");
+        Assert.Null(proof);
+    }
+
+    // ── exportAuditEvents() requires from/to ────────────────────────────────────
+
+    [Fact]
+    public async Task ExportAuditEventsRequiresFromAndTo()
+    {
+        bool called = false;
+        var client = ClientWith(_ => { called = true; return Ok("{}"); });
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => client.ExportAuditEventsAsync("", "2026-04-16T00:00:00Z"));
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => client.ExportAuditEventsAsync("2026-04-15T00:00:00Z", ""));
+        Assert.False(called);
+    }
 }
