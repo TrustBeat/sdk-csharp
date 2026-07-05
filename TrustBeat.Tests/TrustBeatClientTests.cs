@@ -374,4 +374,104 @@ public class TrustBeatClientTests
             () => client.ExportAuditEventsAsync("2026-04-15T00:00:00Z", ""));
         Assert.False(called);
     }
+
+    [Fact]
+    public async Task SubmitAuditEventsSendsBareArray()
+    {
+        string? body = null;
+        var client = ClientWith(req =>
+        {
+            body = req.Content!.ReadAsStringAsync().Result;
+            return Ok("""{"event_ids":["e1","e2"]}""");
+        });
+        var events = new IReadOnlyDictionary<string, object?>[]
+        {
+            new Dictionary<string, object?> { ["trail_category"] = "financial", ["actor"] = "svc:pay", ["action"] = "payment.approved", ["ts"] = "2026-04-15T10:00:00Z" },
+            new Dictionary<string, object?> { ["trail_category"] = "financial", ["actor"] = "svc:pay", ["action"] = "payment.settled",  ["ts"] = "2026-04-15T10:00:05Z" },
+        };
+        var ids = await client.SubmitAuditEventsAsync(events);
+        Assert.Equal(new[] { "e1", "e2" }, ids);
+        Assert.StartsWith("[", body!.TrimStart());
+        Assert.Contains("payment.approved", body);
+    }
+
+    // ── Tamper-Evident Logs (NIS2) ──────────────────────────────────────────────
+
+    private static string LogProofJson(string status)
+    {
+        var proof = status == "VERIFIED" ? ProofJson("log-1") : "null";
+        var anchored = status == "PENDING" ? "null" : "\"2026-04-15T10:10:00Z\"";
+        var a64 = new string('a', 64);
+        var c64 = new string('c', 64);
+        return $$$"""{"id":"log-1","log_hash":"{{{a64}}}","combined_hash":"{{{c64}}}","metadata":{"log_source":{"uri":"/var/log/app.log","name":"App","size_bytes":2048},"source_identity":{"hostname":"host-1","service_name":"payments"},"time_envelope":{"start_at":"2026-04-15T00:00:00Z","end_at":"2026-04-15T23:59:59Z"}},"verification_status":"{{{status}}}","archive_stamps_count":0,"anchored_at":{{{anchored}}},"proof":{{{proof}}}}""";
+    }
+
+    [Fact]
+    public async Task AnchorLogSendsBodyAndParses()
+    {
+        string? body = null;
+        var client = ClientWith(req =>
+        {
+            body = req.Content!.ReadAsStringAsync().Result;
+            return Ok($$"""{"id":"log-1","log_hash":"{{new string('b', 64)}}","combined_hash":"{{new string('c', 64)}}","status":"pending","submitted_at":"2026-04-15T10:00:00Z","overage":false,"label":"lbl"}""");
+        });
+        var meta = new LogMetadata(
+            new LogSource("/var/log/app.log", "App", 2048),
+            new LogSourceIdentity(Hostname: "host-1", ServiceName: "payments"),
+            new LogTimeEnvelope("2026-04-15T00:00:00Z", "2026-04-15T23:59:59Z"));
+        var job = await client.AnchorLogAsync(new string('b', 64), meta, "lbl");
+        Assert.Equal("log-1", job.Id);
+        Assert.Equal("lbl", job.Label);
+        Assert.Contains("\"log_hash\":\"" + new string('b', 64) + "\"", body);
+        Assert.Contains("\"uri\":\"/var/log/app.log\"", body);
+        Assert.Contains("\"service_name\":\"payments\"", body);
+        Assert.Contains("\"size_bytes\":2048", body);
+        Assert.Contains("\"end_at\":\"2026-04-15T23:59:59Z\"", body);
+    }
+
+    [Fact]
+    public async Task GetLogProofReturnsProofWhenVerified()
+    {
+        var client = ClientWith(_ => Ok(LogProofJson("VERIFIED")));
+        var p = await client.GetLogProofAsync("log-1");
+        Assert.NotNull(p);
+        Assert.Equal("VERIFIED", p!.VerificationStatus);
+        Assert.Equal("/var/log/app.log", p.Metadata.LogSource.Uri);
+        Assert.NotNull(p.Proof);
+    }
+
+    [Fact]
+    public async Task GetLogProofReturnsNullWhenPending()
+    {
+        var client = ClientWith(_ => Ok(LogProofJson("PENDING")));
+        Assert.Null(await client.GetLogProofAsync("log-1"));
+    }
+
+    [Fact]
+    public async Task GetLogStatusAndListLogs()
+    {
+        var s = ClientWith(_ => Ok("""{"id":"log-1","status":"anchored","submitted_at":"2026-04-15T10:00:00Z","anchored_at":"2026-04-15T10:10:00Z"}"""));
+        var st = await s.GetLogStatusAsync("log-1");
+        Assert.Equal("anchored", st.Status);
+        Assert.Equal("2026-04-15T10:10:00Z", st.AnchoredAt);
+
+        string? path = null;
+        var l = ClientWith(req =>
+        {
+            path = req.RequestUri!.PathAndQuery;
+            return Ok($$"""{"logs":[{"id":"log-1","log_hash":"{{new string('a', 64)}}","status":"anchored","submitted_at":"2026-04-15T10:00:00Z","log_source_uri":"/var/log/app.log","service_name":"payments","label":"x"}],"total":1}""");
+        });
+        var logs = await l.ListLogsAsync(status: "anchored");
+        Assert.Single(logs);
+        Assert.Equal("/var/log/app.log", logs[0].LogSourceUri);
+        Assert.Contains("status=anchored", path);
+    }
+
+    [Fact]
+    public async Task ExportLogReturnsBytes()
+    {
+        var client = ClientWith(_ => Ok("""{"bundle_type":"trustbeat.log.proof","id":"log-1"}"""));
+        var blob = await client.ExportLogAsync("log-1");
+        Assert.Contains("trustbeat.log.proof", System.Text.Encoding.UTF8.GetString(blob));
+    }
 }

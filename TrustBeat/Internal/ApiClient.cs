@@ -290,5 +290,82 @@ internal sealed class ApiClient : IDisposable
         );
     }
 
+    // ── Tamper-Evident Logs (NIS2) ──────────────────────────────────────────────
+
+    internal static LogAnchorJob ParseLogAnchorJob(Dictionary<string, object?> d) => new(
+        Id:           Json.Str(d, "id")!,
+        LogHash:      Json.Str(d, "log_hash")!,
+        CombinedHash: Json.Str(d, "combined_hash")!,
+        Status:       Json.Str(d, "status")!,
+        SubmittedAt:  Json.Str(d, "submitted_at")!,
+        Overage:      Json.Bool(d, "overage", false),
+        Label:        Json.Str(d, "label")
+    );
+
+    internal static LogStatus ParseLogStatus(Dictionary<string, object?> d) => new(
+        Id:          Json.Str(d, "id")!,
+        Status:      Json.Str(d, "status")!,
+        SubmittedAt: Json.Str(d, "submitted_at")!,
+        AnchoredAt:  Json.Str(d, "anchored_at")
+    );
+
+    internal static LogAnchorListItem ParseLogAnchorListItem(Dictionary<string, object?> d) => new(
+        Id:           Json.Str(d, "id")!,
+        LogHash:      Json.Str(d, "log_hash")!,
+        Status:       Json.Str(d, "status")!,
+        SubmittedAt:  Json.Str(d, "submitted_at")!,
+        LogSourceUri: Json.Str(d, "log_source_uri")!,
+        AnchoredAt:   Json.Str(d, "anchored_at"),
+        ServiceName:  Json.Str(d, "service_name"),
+        Label:        Json.Str(d, "label")
+    );
+
+    internal static LogProof ParseLogProof(Dictionary<string, object?> d)
+    {
+        var meta = ParseLogMetadata((d["metadata"] as Dictionary<string, object?>)!);
+
+        AnchorProof? proof = null;
+        if (d.TryGetValue("proof", out var proofObj) && proofObj is Dictionary<string, object?> proofDict)
+            proof = ParseProof(proofDict);
+
+        IReadOnlyList<string>? failures = null;
+        if (d.TryGetValue("failure_reasons", out var fr) && fr is List<object?> frList)
+            failures = frList.Select(o => o?.ToString() ?? "").ToList().AsReadOnly();
+
+        return new LogProof(
+            Id:                 Json.Str(d, "id")!,
+            LogHash:            Json.Str(d, "log_hash")!,
+            Metadata:           meta,
+            CombinedHash:       Json.Str(d, "combined_hash")!,
+            VerificationStatus: Json.Str(d, "verification_status")!,
+            ArchiveStampsCount: Json.Int(d, "archive_stamps_count"),
+            AnchoredAt:         Json.Str(d, "anchored_at"),
+            Proof:              proof,
+            FailureReasons:     failures
+        );
+    }
+
+    private static LogMetadata ParseLogMetadata(Dictionary<string, object?> m)
+    {
+        var src = (m["log_source"] as Dictionary<string, object?>)!;
+        var ident = m.TryGetValue("source_identity", out var iv) && iv is Dictionary<string, object?> idd
+            ? idd : new Dictionary<string, object?>();
+        long? size = src.ContainsKey("size_bytes") ? Json.Int(src, "size_bytes") : (long?) null;
+
+        var logSource = new LogSource(Json.Str(src, "uri")!, Json.Str(src, "name"), size);
+        var identity = new LogSourceIdentity(
+            SystemUuid:      Json.Str(ident, "system_uuid"),
+            CloudInstanceId: Json.Str(ident, "cloud_instance_id"),
+            Hostname:        Json.Str(ident, "hostname"),
+            ServiceName:     Json.Str(ident, "service_name"),
+            TenantId:        Json.Str(ident, "tenant_id"));
+
+        LogTimeEnvelope? te = null;
+        if (m.TryGetValue("time_envelope", out var tev) && tev is Dictionary<string, object?> ted)
+            te = new LogTimeEnvelope(Json.Str(ted, "start_at")!, Json.Str(ted, "end_at")!);
+
+        return new LogMetadata(logSource, identity, te);
+    }
+
     public void Dispose() => _http.Dispose();
 }

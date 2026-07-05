@@ -266,3 +266,77 @@ public sealed record AuditExportJob(
     int?    EventCount,
     string? Error
 );
+
+// ── Tamper-Evident Logs (NIS2) ────────────────────────────────────────────────
+
+/// <summary>Identifies the log source being anchored. Uri is required.</summary>
+public sealed record LogSource(string Uri, string? Name = null, long? SizeBytes = null);
+
+/// <summary>Time window covered by an anchored log.</summary>
+public sealed record LogTimeEnvelope(string StartAt, string EndAt);
+
+/// <summary>Identity of the system that emitted the log (all fields optional).</summary>
+public sealed record LogSourceIdentity(
+    string? SystemUuid      = null,
+    string? CloudInstanceId = null,
+    string? Hostname        = null,
+    string? ServiceName     = null,
+    string? TenantId        = null
+);
+
+/// <summary>
+/// Metadata sealed alongside a log hash for NIS2 Article 21 anchoring. The server
+/// computes combined_hash = SHA-256(log_hash_bytes ‖ UTF-8(JCS(metadata))).
+/// </summary>
+public sealed record LogMetadata(
+    LogSource         LogSource,
+    LogSourceIdentity SourceIdentity,
+    LogTimeEnvelope?  TimeEnvelope = null
+);
+
+/// <summary>Returned immediately (202) when a log hash is enqueued for anchoring.</summary>
+public sealed record LogAnchorJob(
+    string  Id,
+    string  LogHash,
+    string  CombinedHash,
+    string  Status,
+    string  SubmittedAt,
+    bool    Overage,
+    string? Label
+);
+
+/// <summary>Lightweight status of a log anchor submission.</summary>
+public sealed record LogStatus(
+    string  Id,
+    string  Status,
+    string  SubmittedAt,
+    string? AnchoredAt
+);
+
+/// <summary>A single log anchor submission as returned by ListLogs.</summary>
+public sealed record LogAnchorListItem(
+    string  Id,
+    string  LogHash,
+    string  Status,
+    string  SubmittedAt,
+    string  LogSourceUri,
+    string? AnchoredAt,
+    string? ServiceName,
+    string? Label
+);
+
+/// <summary>
+/// Verification result for an anchored log. VerificationStatus is "VERIFIED" when the
+/// Merkle proof is valid and the combined hash matches; Proof is null otherwise.
+/// </summary>
+public sealed record LogProof(
+    string                  Id,
+    string                  LogHash,
+    LogMetadata             Metadata,
+    string                  CombinedHash,
+    string                  VerificationStatus,
+    int                     ArchiveStampsCount,
+    string?                 AnchoredAt,
+    AnchorProof?            Proof,
+    IReadOnlyList<string>?  FailureReasons
+);

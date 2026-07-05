@@ -33,6 +33,33 @@ var waited = await tb.AnchorWaitAsync(job.Id);  // polls up to 11 min
 
 ```
 
+## Tamper-Evident Logs (NIS2)
+
+Anchor a log hash together with canonical metadata for NIS2 Article 21 audit trails.
+The server seals the metadata into the Merkle leaf, so the proof covers both the log
+content and its context.
+
+```csharp
+using TrustBeat;
+
+var tb = new TrustBeatClient("tb_live_...");
+
+// Hash the log yourself — content never leaves your machine.
+var logHash = await TrustBeatClient.HashFileAsync("app.log");
+
+var meta = new LogMetadata(
+    new LogSource("/var/log/app.log", "Application log"),
+    new LogSourceIdentity(Hostname: "web-01", ServiceName: "payments"),
+    new LogTimeEnvelope("2026-04-15T00:00:00Z", "2026-04-15T23:59:59Z"));
+
+var job = await tb.AnchorLogAsync(logHash, meta, "incident-2026-05");
+Console.WriteLine($"{job.Id} {job.CombinedHash}");
+
+// Wait for the qualified anchor (next batch, up to ~11 min).
+var proof = await tb.AnchorLogWaitAsync(job.Id);
+Console.WriteLine(proof.VerificationStatus); // "VERIFIED"
+```
+
 ## Requirements
 
 - .NET 6+

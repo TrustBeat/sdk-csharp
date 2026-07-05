@@ -426,6 +426,24 @@ public sealed class TrustBeatClient : IDisposable
     }
 
     /// <summary>
+    /// Submit up to 1,000 audit events in a single batch request. Each event uses the
+    /// same keys as <see cref="SubmitAuditEventAsync"/> (trail_category, actor, action, ts).
+    /// Returns the event IDs in submission order.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> SubmitAuditEventsAsync(
+        IEnumerable<IReadOnlyDictionary<string, object?>> events, CancellationToken ct = default)
+    {
+        // The API decodes the body as a bare JSON array of events.
+        var items = string.Join(",", events.Select(e =>
+            Json.BuildObject(e.Select(kv => (kv.Key, kv.Value)).ToArray())));
+        var body = "[" + items + "]";
+        var data = await _api.PostAsync("/audit/events/batch", body, ct).ConfigureAwait(false);
+        return data.TryGetValue("event_ids", out var v) && v is List<object?> list
+            ? list.Select(o => o?.ToString() ?? "").ToList()
+            : (IReadOnlyList<string>) Array.Empty<string>();
+    }
+
+    /// <summary>
     /// Fetch the Merkle inclusion proof for an anchored audit event.
     /// Returns <c>null</c> if the event is not yet anchored.
     /// </summary>
@@ -480,6 +498,116 @@ public sealed class TrustBeatClient : IDisposable
             if (DateTimeOffset.UtcNow > deadline) throw new TrustBeatException($"Export job {jobId} timed out", 0, null);
             await Task.Delay(3000, ct).ConfigureAwait(false);
         }
+    }
+
+    // ── Tamper-Evident Logs (NIS2) ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Submit a log hash for NIS2 Article 21 tamper-evident anchoring. Returns
+    /// immediately (202); the log is anchored in the next batch (~10 min).
+    /// </summary>
+    public async Task<LogAnchorJob> AnchorLogAsync(
+        string logHash, LogMetadata metadata, string? label = null, CancellationToken ct = default)
+    {
+        var body = Json.BuildObject(
+            ("log_hash", logHash),
+            ("metadata", new Json.RawJson(LogMetadataJson(metadata))),
+            ("label",    label));
+        var data = await _api.PostAsync("/logs/anchor", body, ct).ConfigureAwait(false);
+        return ApiClient.ParseLogAnchorJob(data);
+    }
+
+    /// <summary>
+    /// Fetch the verification result for a log anchor. Returns <c>null</c> while the
+    /// log is still pending (verification_status "PENDING"). Throws
+    /// <see cref="NotFoundException"/> if the tracking ID is unknown.
+    /// </summary>
+    public async Task<LogProof?> GetLogProofAsync(string trackingId, CancellationToken ct = default)
+    {
+        var data = await _api.GetAsync($"/logs/verify/{Uri.EscapeDataString(trackingId)}", ct).ConfigureAwait(false);
+        if (Json.Str(data, "verification_status") == "PENDING") return null;
+        return ApiClient.ParseLogProof(data);
+    }
+
+    /// <summary>Get the lightweight status of a log anchor submission (cheap polling).</summary>
+    public async Task<LogStatus> GetLogStatusAsync(string trackingId, CancellationToken ct = default)
+    {
+        var data = await _api.GetAsync($"/logs/{Uri.EscapeDataString(trackingId)}/status", ct).ConfigureAwait(false);
+        return ApiClient.ParseLogStatus(data);
+    }
+
+    /// <summary>List recent log anchor submissions, with optional filters.</summary>
+    public async Task<IReadOnlyList<LogAnchorListItem>> ListLogsAsync(
+        string? status = null, string? from = null, string? to = null, CancellationToken ct = default)
+    {
+        var parts = new List<string>();
+        if (status is not null) parts.Add($"status={Uri.EscapeDataString(status)}");
+        if (from   is not null) parts.Add($"from={Uri.EscapeDataString(from)}");
+        if (to     is not null) parts.Add($"to={Uri.EscapeDataString(to)}");
+        var qs = parts.Count > 0 ? "?" + string.Join("&", parts) : "";
+        var data = await _api.GetAsync($"/logs{qs}", ct).ConfigureAwait(false);
+        return Json.Array(data, "logs").Select(ApiClient.ParseLogAnchorListItem).ToList();
+    }
+
+    /// <summary>
+    /// Download a portable NIS2 log proof bundle (bundle_type "trustbeat.log.proof").
+    /// Returns the raw JSON bundle bytes. Throws <see cref="NotFoundException"/> if
+    /// the log is unknown or not yet anchored.
+    /// </summary>
+    public async Task<byte[]> ExportLogAsync(string trackingId, CancellationToken ct = default)
+    {
+        var (contentType, body) = await _api.GetRawAsync(
+            $"/logs/{Uri.EscapeDataString(trackingId)}/export", ct).ConfigureAwait(false);
+        // Error responses come back as JSON {error:{code,message}}; surface them.
+        if (contentType.StartsWith("application/json"))
+        {
+            var doc = Json.ParseObject(System.Text.Encoding.UTF8.GetString(body));
+            if (doc.TryGetValue("error", out var errObj) && errObj is Dictionary<string, object?> err)
+            {
+                var msg  = Json.Str(err, "message") ?? "Log export failed";
+                var code = Json.Str(err, "code");
+                if (code is "NOT_FOUND" or "NOT_ANCHORED") throw new NotFoundException(msg, code);
+                throw new TrustBeatException(msg);
+            }
+        }
+        return body;
+    }
+
+    /// <summary>Poll GetLogProofAsync until the log is anchored, then return the proof.</summary>
+    public async Task<LogProof> AnchorLogWaitAsync(
+        string trackingId, int timeoutSecs = 660, int pollSecs = 15, CancellationToken ct = default)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(timeoutSecs);
+        while (true)
+        {
+            var proof = await GetLogProofAsync(trackingId, ct).ConfigureAwait(false);
+            if (proof is not null) return proof;
+            if (DateTimeOffset.UtcNow > deadline)
+                throw new TrustBeatException($"AnchorLogWait timed out for {trackingId}");
+            await Task.Delay(pollSecs * 1000, ct).ConfigureAwait(false);
+        }
+    }
+
+    private static string LogMetadataJson(LogMetadata m)
+    {
+        var src = Json.BuildObject(
+            ("uri", m.LogSource.Uri), ("name", m.LogSource.Name), ("size_bytes", m.LogSource.SizeBytes));
+        var id = m.SourceIdentity;
+        var ident = Json.BuildObject(
+            ("system_uuid",       id.SystemUuid),
+            ("cloud_instance_id", id.CloudInstanceId),
+            ("hostname",          id.Hostname),
+            ("service_name",      id.ServiceName),
+            ("tenant_id",         id.TenantId));
+        var pairs = new List<(string, object?)>
+        {
+            ("log_source",      new Json.RawJson(src)),
+            ("source_identity", new Json.RawJson(ident)),
+        };
+        if (m.TimeEnvelope is not null)
+            pairs.Add(("time_envelope", new Json.RawJson(Json.BuildObject(
+                ("start_at", m.TimeEnvelope.StartAt), ("end_at", m.TimeEnvelope.EndAt)))));
+        return Json.BuildObject(pairs.ToArray());
     }
 
     public void Dispose() => _api.Dispose();
