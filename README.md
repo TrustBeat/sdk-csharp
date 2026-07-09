@@ -7,7 +7,7 @@ Part of **[TrustBeat](https://trustbeat.eu)** — digital trust infrastructure f
 ## Install
 
 ```bash
-dotnet add package TrustBeat.SDK
+dotnet add package TrustBeat
 ```
 
 ## Quickstart
