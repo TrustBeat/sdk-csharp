@@ -61,6 +61,23 @@ var proof = await tb.AnchorLogWaitAsync(job.Id);
 Console.WriteLine(proof.VerificationStatus); // "VERIFIED"
 ```
 
+## Webhooks
+
+If your account has a webhook secret configured, every delivery is signed with
+an `X-TrustBeat-Signature` header. Verify it with the raw request body —
+before any JSON parsing:
+
+```csharp
+var ok = WebhookVerifier.VerifyWebhookSignature(rawBody, signatureHeader, webhookSecret);
+if (!ok) throw new UnauthorizedAccessException("Invalid webhook signature");
+```
+
+Also available as `TrustBeatClient.VerifyWebhookSignature(...)`. Rejects replays
+older than 5 minutes by default (`toleranceSecs` parameter to override).
+
+Portable proof bundles for offline verification: `ExportAiDecisionAsync(id)`,
+`ExportVerificationAsync(id)`, `ExportLogAsync(id)` — each returns raw JSON bundle bytes.
+
 ## Requirements
 
 - .NET 6+

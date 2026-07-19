@@ -339,6 +339,19 @@ public sealed class TrustBeatClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// Download a portable AI Act proof bundle (bundle_type "trustbeat.ai.proof").
+    /// Returns the raw JSON bundle bytes. Throws <see cref="NotFoundException"/> if
+    /// the ID is unknown or the decision is not yet anchored.
+    /// </summary>
+    public async Task<byte[]> ExportAiDecisionAsync(string trackingId, CancellationToken ct = default)
+    {
+        var (contentType, body) = await _api.GetRawAsync(
+            $"/ai/decisions/{Uri.EscapeDataString(trackingId)}/export", ct).ConfigureAwait(false);
+        ThrowIfErrorBundle(contentType, body, "AI decision export failed");
+        return body;
+    }
+
     // ── Signature & certificate verification ─────────────────────────────────
 
     /// <summary>
@@ -391,6 +404,19 @@ public sealed class TrustBeatClient : IDisposable
     }
 
     /// <summary>
+    /// Download a portable verification proof bundle (bundle_type
+    /// "trustbeat.verification.proof"). Returns the raw JSON bundle bytes.
+    /// Throws <see cref="NotFoundException"/> if the tracking ID is unknown.
+    /// </summary>
+    public async Task<byte[]> ExportVerificationAsync(string trackingId, CancellationToken ct = default)
+    {
+        var (contentType, body) = await _api.GetRawAsync(
+            $"/verify/{Uri.EscapeDataString(trackingId)}/export", ct).ConfigureAwait(false);
+        ThrowIfErrorBundle(contentType, body, "Verification export failed");
+        return body;
+    }
+
+    /// <summary>
     /// Validate a standalone X.509 certificate (DER or PEM) against the EU Trusted List.
     /// </summary>
     public async Task<CertificateValidationResult> ValidateCertificateAsync(
@@ -401,6 +427,17 @@ public sealed class TrustBeatClient : IDisposable
         var data = await _api.PostAsync("/validate/certificate", body, ct).ConfigureAwait(false);
         return ApiClient.ParseCertValidationResult(data);
     }
+
+    // ── Webhooks ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Verify the <c>X-TrustBeat-Signature</c> header of a webhook delivery.
+    /// Pass the <b>raw request body</b> exactly as received. Returns <c>true</c>
+    /// if the signature is valid and the timestamp is within the default
+    /// 5-minute tolerance. See <see cref="WebhookVerifier"/> for details.
+    /// </summary>
+    public static bool VerifyWebhookSignature(byte[] payload, string signatureHeader, string secret)
+        => WebhookVerifier.VerifyWebhookSignature(payload, signatureHeader, secret);
 
     // ── Audit Trail ─────────────────────────────────────────────────────────────
 
@@ -558,19 +595,23 @@ public sealed class TrustBeatClient : IDisposable
     {
         var (contentType, body) = await _api.GetRawAsync(
             $"/logs/{Uri.EscapeDataString(trackingId)}/export", ct).ConfigureAwait(false);
-        // Error responses come back as JSON {error:{code,message}}; surface them.
-        if (contentType.StartsWith("application/json"))
-        {
-            var doc = Json.ParseObject(System.Text.Encoding.UTF8.GetString(body));
-            if (doc.TryGetValue("error", out var errObj) && errObj is Dictionary<string, object?> err)
-            {
-                var msg  = Json.Str(err, "message") ?? "Log export failed";
-                var code = Json.Str(err, "code");
-                if (code is "NOT_FOUND" or "NOT_ANCHORED") throw new NotFoundException(msg, code);
-                throw new TrustBeatException(msg);
-            }
-        }
+        ThrowIfErrorBundle(contentType, body, "Log export failed");
         return body;
+    }
+
+    // Error responses to bundle downloads come back as JSON {error:{code,message}};
+    // surface them as typed exceptions instead of returning the error body.
+    private static void ThrowIfErrorBundle(string contentType, byte[] body, string fallbackMessage)
+    {
+        if (!contentType.StartsWith("application/json")) return;
+        var doc = Json.ParseObject(System.Text.Encoding.UTF8.GetString(body));
+        if (doc.TryGetValue("error", out var errObj) && errObj is Dictionary<string, object?> err)
+        {
+            var msg  = Json.Str(err, "message") ?? fallbackMessage;
+            var code = Json.Str(err, "code");
+            if (code is "NOT_FOUND" or "NOT_ANCHORED") throw new NotFoundException(msg, code);
+            throw new TrustBeatException(msg);
+        }
     }
 
     /// <summary>Poll GetLogProofAsync until the log is anchored, then return the proof.</summary>

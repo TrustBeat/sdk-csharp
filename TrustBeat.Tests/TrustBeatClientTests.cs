@@ -474,4 +474,41 @@ public class TrustBeatClientTests
         var blob = await client.ExportLogAsync("log-1");
         Assert.Contains("trustbeat.log.proof", System.Text.Encoding.UTF8.GetString(blob));
     }
+
+    [Fact]
+    public async Task ExportAiDecisionReturnsBytes()
+    {
+        string? requestedPath = null;
+        var client = ClientWith(req =>
+        {
+            requestedPath = req.RequestUri!.AbsolutePath;
+            return Ok("""{"bundle_type":"trustbeat.ai.proof","id":"dec-1"}""");
+        });
+        var blob = await client.ExportAiDecisionAsync("dec-1");
+        Assert.Contains("trustbeat.ai.proof", System.Text.Encoding.UTF8.GetString(blob));
+        Assert.EndsWith("/v1/ai/decisions/dec-1/export", requestedPath);
+    }
+
+    [Fact]
+    public async Task ExportAiDecisionNotFound()
+    {
+        var client = ClientWith(_ => Status(
+            HttpStatusCode.NotFound,
+            """{"error":{"message":"Unknown ID","code":"NOT_FOUND"}}"""));
+        await Assert.ThrowsAsync<NotFoundException>(() => client.ExportAiDecisionAsync("nope"));
+    }
+
+    [Fact]
+    public async Task ExportVerificationReturnsBytes()
+    {
+        string? requestedPath = null;
+        var client = ClientWith(req =>
+        {
+            requestedPath = req.RequestUri!.AbsolutePath;
+            return Ok("""{"bundle_type":"trustbeat.verification.proof","id":"ver-1"}""");
+        });
+        var blob = await client.ExportVerificationAsync("ver-1");
+        Assert.Contains("trustbeat.verification.proof", System.Text.Encoding.UTF8.GetString(blob));
+        Assert.EndsWith("/v1/verify/ver-1/export", requestedPath);
+    }
 }
