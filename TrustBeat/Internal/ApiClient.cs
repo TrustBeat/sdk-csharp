@@ -117,7 +117,11 @@ internal sealed class ApiClient : IDisposable
             Provider:      Json.Str(d, "provider")!,
             AnchoredAt:    Json.Str(d, "anchored_at")!,
             ClientRef:     Json.Str(d, "client_ref"),
-            Description:   Json.Str(d, "description")
+            Description:   Json.Str(d, "description"),
+            MerkleAlgorithm: Json.Str(d, "merkle_algorithm") ?? MerkleAlgorithms.LegacySha256,
+            TreeSize:      d.ContainsKey("tree_size") && d["tree_size"] is not null
+                               ? Json.Int(d, "tree_size")
+                               : null
         );
     }
 

@@ -22,6 +22,24 @@ public sealed record AnchorJob(
 /// Full Merkle inclusion proof, returned once anchoring is complete.
 /// Use <see cref="TrustBeatClient.Verify"/> to verify the proof locally.
 /// </summary>
+/// <summary>
+/// Wire names of the Merkle constructions a proof can declare.
+/// </summary>
+public static class MerkleAlgorithms
+{
+    /// <summary>
+    /// The original TrustBeat tree: the leaf is your hash unchanged, parents are
+    /// <c>SHA-256(left || right)</c>, an odd node is duplicated to complete its pair.
+    /// </summary>
+    public const string LegacySha256 = "trustbeat-legacy-sha256";
+
+    /// <summary>
+    /// RFC 6962 / RFC 9162: leaves are <c>SHA-256(0x00 || entry)</c>, parents are
+    /// <c>SHA-256(0x01 || left || right)</c>, layers split at the largest power of two.
+    /// </summary>
+    public const string Rfc6962Sha256 = "rfc6962-sha256";
+}
+
 public sealed record AnchorProof(
     string           Id,
     string           Hash,
@@ -37,7 +55,15 @@ public sealed record AnchorProof(
     string           Provider,
     string           AnchoredAt,
     string?          ClientRef,
-    string?          Description
+    string?          Description,
+    /// <summary>
+    /// Which Merkle construction produced <see cref="MerkleRoot"/>, and therefore how
+    /// <see cref="ProofPath"/> must be folded. Proofs issued before this field existed
+    /// omit it on the wire and are parsed as <c>trustbeat-legacy-sha256</c>.
+    /// </summary>
+    string           MerkleAlgorithm = MerkleAlgorithms.LegacySha256,
+    /// <summary>Leaves in the batch (RFC 6962 tree size); null if the API did not report it.</summary>
+    int?             TreeSize = null
 );
 
 /// <summary>Options for anchor and timestamp requests.</summary>

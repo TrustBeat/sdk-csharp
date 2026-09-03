@@ -43,6 +43,19 @@ public sealed class RateLimitException : TrustBeatException
 }
 
 /// <summary>Raised when local Merkle proof verification encounters malformed data.</summary>
+/// <summary>
+/// Thrown when a proof declares a <c>merkle_algorithm</c> this SDK version does not
+/// implement.
+///
+/// Deliberately not a <see cref="VerificationException"/> and never a <c>false</c>
+/// return: "I cannot check this proof" must not be mistaken for "this proof is
+/// forged". Upgrade the SDK, or verify server-side via the API.
+/// </summary>
+public sealed class UnsupportedAlgorithmException : TrustBeatException
+{
+    public UnsupportedAlgorithmException(string message) : base(message) { }
+}
+
 public sealed class VerificationException : TrustBeatException
 {
     public VerificationException(string message) : base(message) { }
