@@ -279,7 +279,15 @@ public sealed record AuditEventProof(
     string                   BatchId,
     int                      LeafIndex,
     IReadOnlyList<AuditProofStep> MerklePath,
-    string                   AnchoredAt
+    string                   AnchoredAt,
+    /// Root of the batch — the value the RFC 3161 token covers. Null from servers
+    /// older than API 1.46, which did not send it; that is what makes a proof
+    /// unverifiable locally.
+    string?                  MerkleRoot      = null,
+    /// Leaves in the batch. Null from servers older than API 1.46.
+    int?                     TreeSize        = null,
+    /// How MerklePath must be folded. Legacy when the server did not say.
+    string                   MerkleAlgorithm = MerkleAlgorithms.LegacySha256
 );
 
 /// <summary>

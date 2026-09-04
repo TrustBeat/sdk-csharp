@@ -279,7 +279,13 @@ internal sealed class ApiClient : IDisposable
             BatchId:       Json.Str(d, "batch_id")!,
             LeafIndex:     Json.Int(d, "leaf_index"),
             MerklePath:    rawPath,
-            AnchoredAt:    Json.Str(d, "anchored_at")!
+            AnchoredAt:    Json.Str(d, "anchored_at")!,
+            MerkleRoot:    Json.Str(d, "merkle_root"),
+            TreeSize:      d.TryGetValue("tree_size", out var ts) && ts is not null
+                               ? Json.Int(d, "tree_size") : null,
+            MerkleAlgorithm: string.IsNullOrEmpty(Json.Str(d, "merkle_algorithm"))
+                               ? MerkleAlgorithms.LegacySha256
+                               : Json.Str(d, "merkle_algorithm")!
         );
     }
 

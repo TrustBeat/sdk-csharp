@@ -186,6 +186,15 @@ public sealed class TrustBeatClient : IDisposable
     /// </summary>
     public bool Verify(AnchorProof proof) => MerkleVerifier.Verify(proof);
 
+    /// <summary>
+    /// Verify an audit event's Merkle inclusion proof locally — no network call.
+    /// The audit counterpart of <see cref="Verify(AnchorProof)"/>.
+    /// Throws <see cref="IncompleteProofException"/> if the proof has no
+    /// <c>MerkleRoot</c>, which is what a server older than API 1.46 returns — that
+    /// is "cannot check", not "invalid".
+    /// </summary>
+    public bool VerifyAuditEvent(AuditEventProof proof) => MerkleVerifier.VerifyAuditEvent(proof);
+
     // ── Static hashing utilities ───────────────────────────────────────────────
 
     /// <summary>SHA-256 hash of a byte array, as a lowercase hex string.</summary>

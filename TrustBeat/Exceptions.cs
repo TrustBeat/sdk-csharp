@@ -56,6 +56,21 @@ public sealed class UnsupportedAlgorithmException : TrustBeatException
     public UnsupportedAlgorithmException(string message) : base(message) { }
 }
 
+/// <summary>
+/// Thrown when a proof does not carry the fields needed to check it locally.
+///
+/// Audit event proofs from servers older than API 1.46 have no <c>MerkleRoot</c>,
+/// so there is nothing to fold the path against. Like
+/// <see cref="UnsupportedAlgorithmException"/> this is deliberately not a
+/// <see cref="VerificationException"/> and never a <c>false</c> return: "I cannot
+/// check this proof" must not be mistaken for "this proof is forged". Verify
+/// server-side via the API, or upgrade the server.
+/// </summary>
+public sealed class IncompleteProofException : TrustBeatException
+{
+    public IncompleteProofException(string message) : base(message) { }
+}
+
 public sealed class VerificationException : TrustBeatException
 {
     public VerificationException(string message) : base(message) { }

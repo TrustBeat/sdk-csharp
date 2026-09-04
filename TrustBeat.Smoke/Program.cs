@@ -132,7 +132,19 @@ switch (args[0])
         var events = await c.ListAuditEventsAsync(Env("TB_AUDIT_CATEGORY"));
         if (!events.Any(e => e.EventId == id))
             Fail($"verify-audit: {id} not returned by ListAuditEventsAsync");
-        Console.WriteLine($"OK audit id={id} batch={proof.BatchId[..Math.Min(12, proof.BatchId.Length)]}… leaf={proof.LeafIndex}");
+        // Actually fold the path — everything above is structure. A server before
+        // API 1.46 sends no MerkleRoot, which the SDK reports as "cannot check".
+        string verdict;
+        try
+        {
+            if (!c.VerifyAuditEvent(proof)) Fail($"verify-audit: Merkle verification FAILED for {id}");
+            verdict = $"verified algo={proof.MerkleAlgorithm} size={proof.TreeSize}";
+        }
+        catch (IncompleteProofException)
+        {
+            verdict = "unverifiable (server predates API 1.46)";
+        }
+        Console.WriteLine($"OK audit id={id} batch={proof.BatchId[..Math.Min(12, proof.BatchId.Length)]}… leaf={proof.LeafIndex} {verdict}");
         break;
     }
     case "verify-sig":

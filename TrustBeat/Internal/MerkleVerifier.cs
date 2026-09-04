@@ -16,6 +16,45 @@ namespace TrustBeat.Internal;
 /// </summary>
 internal static class MerkleVerifier
 {
+    /// <summary>
+    /// Verify an audit event's Merkle inclusion proof locally. The audit counterpart
+    /// of <see cref="Verify(AnchorProof)"/>, for the shape that names the leaf
+    /// CanonicalHash and the path MerklePath.
+    /// </summary>
+    /// <exception cref="IncompleteProofException">
+    /// The proof carries no MerkleRoot — servers before API 1.46 did not send one, so
+    /// there is nothing to fold against. That is "cannot check", never "invalid".
+    /// </exception>
+    internal static bool VerifyAuditEvent(AuditEventProof proof)
+    {
+        if (string.IsNullOrEmpty(proof.MerkleRoot))
+        {
+            throw new IncompleteProofException(
+                "This audit event proof has no merkle_root, so it cannot be folded " +
+                "locally. The server that issued it predates API 1.46. Verify it " +
+                "server-side via the API, or re-fetch it from an upgraded server.");
+        }
+        // Reuse the anchor fold: the shapes differ only in field names.
+        var path = proof.MerklePath.Select(s => new ProofStep(s.Sibling, s.Side)).ToList();
+        return Verify(new AnchorProof(
+            Id:              proof.EventId,
+            Hash:            proof.CanonicalHash,
+            HashAlgorithm:   "SHA-256",
+            BatchId:         proof.BatchId,
+            LeafIndex:       proof.LeafIndex,
+            MerkleRoot:      proof.MerkleRoot!,
+            ProofPath:       path,
+            Token:           Array.Empty<byte>(),
+            TokenFormat:     "",
+            TsaSerial:       "",
+            Provider:        "",
+            AnchoredAt:      proof.AnchoredAt,
+            ClientRef:       null,
+            Description:     null,
+            MerkleAlgorithm: proof.MerkleAlgorithm,
+            TreeSize:        proof.TreeSize));
+    }
+
     internal static bool Verify(AnchorProof proof)
     {
         var algorithm = string.IsNullOrEmpty(proof.MerkleAlgorithm)
