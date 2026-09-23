@@ -78,6 +78,29 @@ older than 5 minutes by default (`toleranceSecs` parameter to override).
 Portable proof bundles for offline verification: `ExportAiDecisionAsync(id)`,
 `ExportVerificationAsync(id)`, `ExportLogAsync(id)` — each returns raw JSON bundle bytes.
 
+## Batches and rate limits
+
+A batch carries up to **1,000** hashes and is all-or-nothing: if the call fails, none of them
+was queued. (API servers deployed before 26 Sep 2026 accept at most 100.)
+
+Anchoring is rate-limited per account (see your plan). A rate-limited request (HTTP 429) is
+**retried automatically**, waiting the `Retry-After` the server sends — twice by default.
+Retrying is always safe: a refused submission was never queued. When the retries run out you
+get the rate-limit error, carrying the wait the server asked for.
+
+```csharp
+var tb = new TrustBeatClient("tb_live_...") { MaxRetries = 2 };   // 0 turns retrying off
+
+try
+{
+    var submission = await tb.AnchorBatchAsync(hashes);          // up to TrustBeatClient.MaxBatchSize (1,000)
+}
+catch (RateLimitException ex)
+{
+    Console.WriteLine($"still limited; server asked to wait {ex.RetryAfter}");
+}
+```
+
 ## Requirements
 
 - .NET 6+

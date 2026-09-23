@@ -24,6 +24,9 @@ public sealed class TrustBeatClient : IDisposable
 {
     internal const string DefaultBaseUrl = "https://api.trustbeat.eu/v1";
 
+    /// <summary>Most hashes one <see cref="AnchorBatchAsync"/> call may carry — the API's limit.</summary>
+    public const int MaxBatchSize = 1000;
+
     private readonly ApiClient _api;
 
     /// <param name="apiKey">Your TrustBeat API key (tb_live_... or tb_test_...).</param>
@@ -42,11 +45,34 @@ public sealed class TrustBeatClient : IDisposable
 
     /// <summary>Test-only constructor — injects a stub HttpMessageHandler.</summary>
     internal TrustBeatClient(string apiKey, string baseUrl,
-                             System.Net.Http.HttpMessageHandler handler)
+                             System.Net.Http.HttpMessageHandler handler, TimeSpan? timeout = null)
     {
         if (string.IsNullOrEmpty(apiKey))
             throw new ArgumentException("apiKey must not be empty", nameof(apiKey));
-        _api = new ApiClient(apiKey, baseUrl, handler);
+        _api = new ApiClient(apiKey, baseUrl, handler, timeout);
+    }
+
+    /// <summary>
+    /// How many times a rate-limited (HTTP 429) request is retried, waiting the <c>Retry-After</c>
+    /// the server sends (1 s, 2 s, 4 s … if it sends none). <c>0</c> disables retrying. Default: 2.
+    /// Only 429 is retried: the API refuses a rate-limited submission before queuing it, so a
+    /// retry cannot anchor a hash twice.
+    /// </summary>
+    /// <example><code>var client = new TrustBeatClient(apiKey) { MaxRetries = 0 };</code></example>
+    public int MaxRetries
+    {
+        get => _api.MaxRetries;
+        init
+        {
+            if (value < 0) throw new ArgumentOutOfRangeException(nameof(MaxRetries), "must not be negative");
+            _api.MaxRetries = value;
+        }
+    }
+
+    /// <summary>Test hook: how the client waits between 429 retries.</summary>
+    internal Func<TimeSpan, CancellationToken, Task> RetryDelay
+    {
+        set => _api.Delay = value;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -66,7 +92,9 @@ public sealed class TrustBeatClient : IDisposable
     }
 
     /// <summary>
-    /// Submit up to 100 SHA-256 hashes in a single batch.
+    /// Submit up to <see cref="MaxBatchSize"/> (1,000) SHA-256 hashes in a single batch.
+    /// The submission is all-or-nothing: if the call fails, none of the hashes was queued.
+    /// Servers deployed before 2026-09-26 accept at most 100 and answer a larger batch with 400.
     /// Returns a <see cref="BatchSubmission"/> grouping all items under one SubmissionId.
     /// Use <see cref="AnchorBatchWaitAsync"/> to block until all proofs are ready.
     /// </summary>
@@ -76,8 +104,8 @@ public sealed class TrustBeatClient : IDisposable
         CancellationToken ct = default)
     {
         if (hashes.Count == 0) return new BatchSubmission("", []);
-        if (hashes.Count > 100)
-            throw new ArgumentException("AnchorBatch: maximum 100 hashes per request");
+        if (hashes.Count > MaxBatchSize)
+            throw new ArgumentException($"AnchorBatch: maximum {MaxBatchSize} hashes per request");
 
         var items = "[" + string.Join(",",
             hashes.Select(h => Json.BuildObject(("hash", h), ("hash_algorithm", "SHA-256")))) + "]";

@@ -125,11 +125,26 @@ public class TrustBeatClientTests
     }
 
     [Fact]
-    public async Task AnchorBatchOver100Throws()
+    public async Task AnchorBatchOverMaxThrowsWithoutRequest()
     {
-        var client = ClientWith(_ => Ok("{}"));
-        var hashes = Enumerable.Repeat("a".PadRight(64, 'a'), 101).ToList();
+        var called = false;
+        var client = ClientWith(_ => { called = true; return Ok("{}"); });
+        var hashes = Enumerable.Repeat("a".PadRight(64, 'a'), TrustBeatClient.MaxBatchSize + 1).ToList();
         await Assert.ThrowsAsync<ArgumentException>(() => client.AnchorBatchAsync(hashes));
+        Assert.False(called);
+    }
+
+    [Fact]
+    public async Task AnchorBatchSendsTheMaximumInOneRequest()
+    {
+        string? body = null;
+        var client = ClientWith(req =>
+        {
+            body = req.Content!.ReadAsStringAsync().Result;
+            return Status(HttpStatusCode.Accepted, """{"submission_id":"sub_1","accepted":[],"total":1000}""");
+        });
+        await client.AnchorBatchAsync(Enumerable.Repeat("a".PadRight(64, 'a'), TrustBeatClient.MaxBatchSize).ToList());
+        Assert.Equal(TrustBeatClient.MaxBatchSize, body!.Split("\"hash\":").Length - 1);
     }
 
     // ── getProof() ────────────────────────────────────────────────────────────
@@ -510,5 +525,142 @@ public class TrustBeatClientTests
         var blob = await client.ExportVerificationAsync("ver-1");
         Assert.Contains("trustbeat.verification.proof", System.Text.Encoding.UTF8.GetString(blob));
         Assert.EndsWith("/v1/verify/ver-1/export", requestedPath);
+    }
+
+    // ── 429 retry ─────────────────────────────────────────────────────────────
+
+    private static HttpResponseMessage Limited(int? retryAfterSecs)
+    {
+        var r = Status(HttpStatusCode.TooManyRequests, """{"error":{"code":"RATE_LIMITED","message":"Slow down"}}""");
+        if (retryAfterSecs is int s) r.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(s));
+        return r;
+    }
+
+    /// <summary>Answers the n-th request with steps[n] (the last repeats); counts requests.</summary>
+    private static (Func<HttpRequestMessage, HttpResponseMessage> Handler, Func<int> Count) Script(
+        params Func<HttpResponseMessage>[] steps)
+    {
+        var n = 0;
+        return (_ => steps[Math.Min(n++, steps.Length - 1)](), () => n);
+    }
+
+    [Fact]
+    public async Task RetryWaitsRetryAfterThenSucceeds()
+    {
+        var (handler, count) = Script(() => Limited(3), () => Status(HttpStatusCode.Accepted, AnchorAccepted()));
+        var waits = new List<TimeSpan>();
+        var job = await TrustBeatClientTestFactory.Create(handler, waits: waits).AnchorAsync("a".PadRight(64, 'a'));
+        Assert.Equal("track-1", job.Id);
+        Assert.Equal(2, count());
+        Assert.Equal(new[] { TimeSpan.FromSeconds(3) }, waits);
+    }
+
+    [Fact]
+    public async Task RetryGivesUpAfterMaxRetriesWithRetryAfterOnTheException()
+    {
+        var (handler, count) = Script(() => Limited(2));
+        var waits = new List<TimeSpan>();
+        var ex = await Assert.ThrowsAsync<RateLimitException>(
+            () => TrustBeatClientTestFactory.Create(handler, maxRetries: 2, waits: waits).AnchorAsync("a".PadRight(64, 'a')));
+        Assert.Equal(TimeSpan.FromSeconds(2), ex.RetryAfter);
+        Assert.Equal(429, ex.Status);
+        Assert.Equal(3, count());
+        Assert.Equal(2, waits.Count);
+    }
+
+    [Fact]
+    public async Task RetryDisabledWithZero()
+    {
+        var (handler, count) = Script(() => Limited(1));
+        var waits = new List<TimeSpan>();
+        await Assert.ThrowsAsync<RateLimitException>(
+            () => TrustBeatClientTestFactory.Create(handler, maxRetries: 0, waits: waits).AnchorAsync("a".PadRight(64, 'a')));
+        Assert.Equal(1, count());
+        Assert.Empty(waits);
+    }
+
+    [Fact]
+    public async Task RetryBacksOffWithoutRetryAfter()
+    {
+        var (handler, _) = Script(() => Limited(null), () => Limited(null), () => Status(HttpStatusCode.Accepted, AnchorAccepted()));
+        var waits = new List<TimeSpan>();
+        await TrustBeatClientTestFactory.Create(handler, waits: waits).AnchorAsync("a".PadRight(64, 'a'));
+        Assert.Equal(new[] { TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2) }, waits);
+    }
+
+    [Fact]
+    public async Task RetryThrowsAWaitOver60SecondsInsteadOfWaiting()
+    {
+        var (handler, _) = Script(() => Limited(120));
+        var waits = new List<TimeSpan>();
+        var ex = await Assert.ThrowsAsync<RateLimitException>(
+            () => TrustBeatClientTestFactory.Create(handler, waits: waits).AnchorAsync("a".PadRight(64, 'a')));
+        Assert.Equal(TimeSpan.FromSeconds(120), ex.RetryAfter);
+        Assert.Empty(waits);
+    }
+
+    [Fact]
+    public async Task RetryDoesNotRetryOtherErrors()
+    {
+        // A 5xx may come after the hash was queued; retrying it could anchor it twice.
+        var (handler, count) = Script(() => Status(HttpStatusCode.ServiceUnavailable, """{"error":{"message":"busy"}}"""));
+        var waits = new List<TimeSpan>();
+        await Assert.ThrowsAsync<TrustBeatException>(
+            () => TrustBeatClientTestFactory.Create(handler, waits: waits).AnchorAsync("a".PadRight(64, 'a')));
+        Assert.Equal(1, count());
+        Assert.Empty(waits);
+    }
+
+    [Fact]
+    public async Task RetryAppliesToBatchSubmissionsWithAFreshBody()
+    {
+        var bodies = new List<string>();
+        var n = 0;
+        var client = TrustBeatClientTestFactory.Create(req =>
+        {
+            bodies.Add(req.Content!.ReadAsStringAsync().Result);
+            return n++ == 0 ? Limited(1) : Status(HttpStatusCode.Accepted, """{"submission_id":"sub_1","accepted":[],"total":0}""");
+        });
+        await client.AnchorBatchAsync(new List<string> { "a".PadRight(64, 'a') });
+        Assert.Equal(2, bodies.Count);
+        Assert.Equal(bodies[0], bodies[1]);
+    }
+
+    [Fact]
+    public void NegativeMaxRetriesIsRejected()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new TrustBeatClient("tb_live_test") { MaxRetries = -1 });
+    }
+
+    // ── timeout ───────────────────────────────────────────────────────────────
+
+    /// <summary>Answers only after <paramref name="delay"/>, honouring cancellation like a real socket.</summary>
+    private sealed class SlowHandler(TimeSpan delay) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
+        {
+            await Task.Delay(delay, ct);
+            return Ok(AnchorAccepted());
+        }
+    }
+
+    [Fact]
+    public async Task TheCallersTimeoutIsApplied()
+    {
+        // Before 0.5.0 the timeout argument was dropped and every request got 30 s.
+        var client = new TrustBeatClient("tb_live_test", "http://localhost/v1",
+                                         new SlowHandler(TimeSpan.FromSeconds(10)), TimeSpan.FromMilliseconds(200));
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.AnchorAsync("a".PadRight(64, 'a')));
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(5), $"took {sw.Elapsed}");
+    }
+
+    [Fact]
+    public async Task WithinTheTimeoutTheRequestSucceeds()
+    {
+        var client = new TrustBeatClient("tb_live_test", "http://localhost/v1",
+                                         new SlowHandler(TimeSpan.FromMilliseconds(10)), TimeSpan.FromSeconds(5));
+        var job = await client.AnchorAsync("a".PadRight(64, 'a'));
+        Assert.Equal("track-1", job.Id);
     }
 }

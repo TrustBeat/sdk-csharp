@@ -9,17 +9,27 @@ namespace TrustBeat.Internal;
 /// </summary>
 internal sealed class ApiClient : IDisposable
 {
+    /// <summary>A 429 asking to wait longer than this is thrown at once rather than waited out.</summary>
+    private static readonly TimeSpan MaxRetryWait = TimeSpan.FromSeconds(60);
+
     private readonly HttpClient _http;
     private readonly string     _baseUrl;
 
+    /// <summary>How many times a 429 is retried. See <see cref="TrustBeatClient.MaxRetries"/>.</summary>
+    internal int MaxRetries { get; set; } = 2;
+
+    /// <summary>How the client waits between 429 retries. Replaced in tests.</summary>
+    internal Func<TimeSpan, CancellationToken, Task> Delay { get; set; } = Task.Delay;
+
     internal ApiClient(string apiKey, string baseUrl, TimeSpan timeout)
-        : this(apiKey, baseUrl, new HttpClientHandler()) { }
+        : this(apiKey, baseUrl, new HttpClientHandler(), timeout) { }
 
     /// <summary>Test-only constructor that injects a custom message handler.</summary>
-    internal ApiClient(string apiKey, string baseUrl, HttpMessageHandler handler)
+    internal ApiClient(string apiKey, string baseUrl, HttpMessageHandler handler, TimeSpan? timeout = null)
     {
         _baseUrl = baseUrl.TrimEnd('/');
-        _http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+        // Until 0.5.0 this was a hard-coded 30 s and the caller's timeout was silently dropped.
+        _http = new HttpClient(handler) { Timeout = timeout ?? TimeSpan.FromSeconds(30) };
         _http.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", apiKey);
         _http.DefaultRequestHeaders.Accept.Add(
@@ -28,19 +38,40 @@ internal sealed class ApiClient : IDisposable
 
     // ── HTTP verbs ─────────────────────────────────────────────────────────────
 
-    internal async Task<Dictionary<string, object?>> PostAsync(
+    internal Task<Dictionary<string, object?>> PostAsync(
         string path, string jsonBody, CancellationToken ct)
-    {
-        var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
-        var response = await _http.PostAsync(_baseUrl + path, content, ct).ConfigureAwait(false);
-        return await ReadAsync(response, ct).ConfigureAwait(false);
-    }
+        => WithRetryAsync(async () =>
+        {
+            // A fresh content per attempt: a sent HttpContent is not reusable.
+            var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+            var response = await _http.PostAsync(_baseUrl + path, content, ct).ConfigureAwait(false);
+            return await ReadAsync(response, ct).ConfigureAwait(false);
+        }, ct);
 
-    internal async Task<Dictionary<string, object?>> GetAsync(
+    internal Task<Dictionary<string, object?>> GetAsync(
         string path, CancellationToken ct)
+        => WithRetryAsync(async () =>
+        {
+            var response = await _http.GetAsync(_baseUrl + path, ct).ConfigureAwait(false);
+            return await ReadAsync(response, ct).ConfigureAwait(false);
+        }, ct);
+
+    /// <summary>Runs one API call, retrying HTTP 429 up to <see cref="MaxRetries"/> times; any other outcome propagates.</summary>
+    private async Task<T> WithRetryAsync<T>(Func<Task<T>> call, CancellationToken ct)
     {
-        var response = await _http.GetAsync(_baseUrl + path, ct).ConfigureAwait(false);
-        return await ReadAsync(response, ct).ConfigureAwait(false);
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await call().ConfigureAwait(false);
+            }
+            catch (RateLimitException e) when (attempt < MaxRetries)
+            {
+                var wait = e.RetryAfter ?? TimeSpan.FromSeconds(1 << attempt);
+                if (wait > MaxRetryWait) throw;
+                await Delay(wait, ct).ConfigureAwait(false);
+            }
+        }
     }
 
     private static async Task<Dictionary<string, object?>> ReadAsync(
@@ -60,7 +91,8 @@ internal sealed class ApiClient : IDisposable
             401 => new AuthException(msg),
             402 => new QuotaException(msg),
             404 => new NotFoundException(msg, code ?? "NOT_FOUND"),
-            429 => new RateLimitException(msg),
+            // Delta only: TrustBeat sends seconds, never the HTTP-date form.
+            429 => new RateLimitException(msg, response.Headers.RetryAfter?.Delta),
             _   => new TrustBeatException(msg, (int)response.StatusCode, code)
         };
     }
