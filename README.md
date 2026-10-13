@@ -88,6 +88,9 @@ var now = await File.ReadAllTextAsync("now.submission.json");
 var report = await tb.VerifySignaturePreservationAsync(rec.Id, now);
 Console.WriteLine($"{report.Result} {report.Steps[0].Name} {report.Steps[0].Result}");
 var pdf = await tb.VerifySignaturePreservationPdfAsync(rec.Id, now);
+
+// Delete a record — final; the id is repeated as a guard, and the account is emailed
+await tb.DeleteSignaturePreservationAsync(rec.Id, rec.Id);
 ```
 
 Verifying later works with the original file only: `trustbeat-signature extract` it again and pass that

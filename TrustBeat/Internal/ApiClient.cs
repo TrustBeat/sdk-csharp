@@ -56,6 +56,14 @@ internal sealed class ApiClient : IDisposable
             return await ReadAsync(response, ct).ConfigureAwait(false);
         }, ct);
 
+    internal Task<Dictionary<string, object?>> DeleteAsync(
+        string path, CancellationToken ct)
+        => WithRetryAsync(async () =>
+        {
+            var response = await _http.DeleteAsync(_baseUrl + path, ct).ConfigureAwait(false);
+            return await ReadAsync(response, ct).ConfigureAwait(false);
+        }, ct);
+
     /// <summary>A request whose success body is binary (ZIP, PDF); an error response is mapped as for JSON calls.</summary>
     internal async Task<byte[]> SendBinaryAsync(HttpMethod method, string path, string? jsonBody, CancellationToken ct)
     {

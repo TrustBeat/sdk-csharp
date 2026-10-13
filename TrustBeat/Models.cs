@@ -378,6 +378,16 @@ public sealed record LogProof(
 // ── Signature Preservation ────────────────────────────────────────────────────
 
 /// <summary>
+/// A deleted Signature Preservation record. Deletion is final; <see cref="PeoSha256"/> stays in its batch's hash tree.
+/// </summary>
+public sealed record SignaturePreservationDeletion(
+    string Id,
+    /// <summary>ISO 8601.</summary>
+    string DeletedAt,
+    /// <summary>SHA-256 of the deleted Preservation Evidence Object — the digest that stays in the batch's hash tree.</summary>
+    string PeoSha256);
+
+/// <summary>
 /// A preserved signed file (<c>/v1/signature-preservation</c>).
 /// <para><see cref="Status"/> is <c>"pending"</c> (queued for the next anchoring cycle), <c>"anchored"</c>
 /// (its RFC 4998 evidence record is being made) or <c>"preserved"</c> (the evidence record exists).

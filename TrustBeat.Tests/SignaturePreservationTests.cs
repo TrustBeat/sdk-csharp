@@ -127,4 +127,25 @@ public class SignaturePreservationTests
         Assert.Equal(Submission, calls[0].Body);
         Assert.Equal("%PDF-1.7", Encoding.ASCII.GetString(pdf));
     }
+
+    [Fact]
+    public async Task DeleteSendsTheConfirmationAndMapsTheResult()
+    {
+        var (client, calls) = Json(HttpStatusCode.OK, """{"id":"01REC","deleted_at":"2026-10-13T11:00:00Z","peo_sha256":"dd"}""");
+        var d = await client.DeleteSignaturePreservationAsync("01REC", "01REC");
+        Assert.Equal("DELETE", calls[0].Method);
+        Assert.Equal("/v1/signature-preservation/01REC?confirm=01REC", calls[0].Uri);
+        Assert.Equal(new SignaturePreservationDeletion("01REC", "2026-10-13T11:00:00Z", "dd"), d);
+    }
+
+    [Fact]
+    public async Task DeleteWithAWrongConfirmationOrAnUnknownRecord()
+    {
+        var (client, _) = Json(HttpStatusCode.BadRequest, """{"error":{"code":"CONFIRMATION_REQUIRED","message":"Repeat the id"}}""");
+        var e = await Assert.ThrowsAsync<TrustBeatException>(() => client.DeleteSignaturePreservationAsync("01REC", "01OTHER"));
+        Assert.Equal(400, e.Status);
+        Assert.Equal("CONFIRMATION_REQUIRED", e.Code);
+        var (client2, _) = Json(HttpStatusCode.NotFound, """{"error":{"code":"NOT_FOUND","message":"Record not found."}}""");
+        await Assert.ThrowsAsync<NotFoundException>(() => client2.DeleteSignaturePreservationAsync("nope", "nope"));
+    }
 }

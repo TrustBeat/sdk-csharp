@@ -509,6 +509,24 @@ public sealed class TrustBeatClient : IDisposable
         => _api.SendBinaryAsync(HttpMethod.Get, SpPath(recordId) + "/package", null, ct);
 
     /// <summary>
+    /// Delete a record before the end of its preservation period. <b>Final</b>: the Preservation Evidence
+    /// Object, the signatures and the record are removed and its evidence record is no longer served;
+    /// download the package first if you may need it. The account's email address is notified.
+    /// </summary>
+    /// <param name="recordId">The record to delete.</param>
+    /// <param name="confirm">The record id again — a guard against deleting the wrong record. A mismatch is a
+    /// <see cref="TrustBeatException"/> with status 400 and code <c>CONFIRMATION_REQUIRED</c>.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <exception cref="NotFoundException">The record is unknown on this account or already deleted.</exception>
+    public async Task<SignaturePreservationDeletion> DeleteSignaturePreservationAsync(
+        string recordId, string confirm, CancellationToken ct = default)
+    {
+        var data = await _api.DeleteAsync(SpPath(recordId) + "?confirm=" + Uri.EscapeDataString(confirm), ct).ConfigureAwait(false);
+        return new SignaturePreservationDeletion(
+            Json.Str(data, "id") ?? "", Json.Str(data, "deleted_at") ?? "", Json.Str(data, "peo_sha256") ?? "");
+    }
+
+    /// <summary>
     /// Verify a signed file presented now against its record: the eight-step report.
     /// <paramref name="submission"/> is <c>trustbeat-signature extract</c> of the file presented now. A file
     /// that does not match gives a report with failed steps, not an exception. Not counted against the quota.
