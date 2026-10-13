@@ -465,6 +465,78 @@ public sealed class TrustBeatClient : IDisposable
         return ApiClient.ParseCertValidationResult(data);
     }
 
+    // ── Signature Preservation (not yet available: the API answers 404 until launch) ──
+
+    /// <summary>
+    /// Preserve the signatures of a signed file.
+    /// <para><paramref name="submission"/> is the JSON that <c>trustbeat-signature extract &lt;file&gt;</c>
+    /// writes. It holds the signatures and the digests binding them to the file; the signed file itself
+    /// never reaches TrustBeat, and this SDK does not read signed files. Counts as one anchor against the
+    /// monthly quota. A submission the API does not accept is a <see cref="TrustBeatException"/> with
+    /// status 400 and code <c>INVALID_SUBMISSION</c>.</para>
+    /// </summary>
+    /// <param name="submission">The extractor's submission JSON, sent unchanged.</param>
+    /// <param name="clientRef">Your own reference for the record (at most 256 characters).</param>
+    public async Task<SignaturePreservationRecord> PreserveSignaturesAsync(
+        string submission, string? clientRef = null, CancellationToken ct = default)
+    {
+        var path = "/signature-preservation" + (clientRef is not null ? "?client_ref=" + Uri.EscapeDataString(clientRef) : "");
+        var data = await _api.PostAsync(path, SubmissionBody(submission), ct).ConfigureAwait(false);
+        return ApiClient.ParseSignaturePreservationRecord(data);
+    }
+
+    /// <summary>One preserved signed file, with its signatures and their EU DSS findings.</summary>
+    /// <exception cref="NotFoundException">The record is unknown on this account.</exception>
+    public async Task<SignaturePreservationRecord> GetSignaturePreservationAsync(string recordId, CancellationToken ct = default)
+    {
+        var data = await _api.GetAsync(SpPath(recordId), ct).ConfigureAwait(false);
+        return ApiClient.ParseSignaturePreservationRecord(data);
+    }
+
+    /// <summary>The account's preserved signed files, newest first (without their signatures).</summary>
+    public async Task<IReadOnlyList<SignaturePreservationRecord>> ListSignaturePreservationsAsync(
+        int? limit = null, CancellationToken ct = default)
+    {
+        var data = await _api.GetAsync("/signature-preservation" + (limit is int l ? $"?limit={l}" : ""), ct).ConfigureAwait(false);
+        return Json.Array(data, "records").Select(ApiClient.ParseSignaturePreservationRecord).ToList().AsReadOnly();
+    }
+
+    /// <summary>
+    /// The record's package (ZIP) for verification without TrustBeat. Keep it next to the original file;
+    /// <c>trustbeat-signature verify &lt;file&gt; --package &lt;zip&gt;</c> checks both offline.
+    /// </summary>
+    public Task<byte[]> DownloadSignaturePreservationPackageAsync(string recordId, CancellationToken ct = default)
+        => _api.SendBinaryAsync(HttpMethod.Get, SpPath(recordId) + "/package", null, ct);
+
+    /// <summary>
+    /// Verify a signed file presented now against its record: the eight-step report.
+    /// <paramref name="submission"/> is <c>trustbeat-signature extract</c> of the file presented now. A file
+    /// that does not match gives a report with failed steps, not an exception. Not counted against the quota.
+    /// </summary>
+    public async Task<SignaturePreservationReport> VerifySignaturePreservationAsync(
+        string recordId, string submission, CancellationToken ct = default)
+    {
+        var data = await _api.PostAsync(SpPath(recordId) + "/verify", SubmissionBody(submission), ct).ConfigureAwait(false);
+        return ApiClient.ParseSignaturePreservationReport(data);
+    }
+
+    /// <summary>The same report as <see cref="VerifySignaturePreservationAsync"/>, as a PDF document.</summary>
+    public Task<byte[]> VerifySignaturePreservationPdfAsync(string recordId, string submission, CancellationToken ct = default)
+        => _api.SendBinaryAsync(HttpMethod.Post, SpPath(recordId) + "/verify?format=pdf", SubmissionBody(submission), ct);
+
+    private static string SpPath(string recordId) => "/signature-preservation/" + Uri.EscapeDataString(recordId);
+
+    /// <summary>The submission unchanged, after checking it is a JSON object.</summary>
+    private static string SubmissionBody(string submission)
+    {
+        try { Json.ParseObject(submission); }
+        catch (Exception e)
+        {
+            throw new ArgumentException("a submission is a JSON object, as written by `trustbeat-signature extract`", nameof(submission), e);
+        }
+        return submission;
+    }
+
     // ── Webhooks ──────────────────────────────────────────────────────────────
 
     /// <summary>

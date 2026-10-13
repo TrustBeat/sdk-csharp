@@ -56,6 +56,16 @@ internal sealed class ApiClient : IDisposable
             return await ReadAsync(response, ct).ConfigureAwait(false);
         }, ct);
 
+    /// <summary>A request whose success body is binary (ZIP, PDF); an error response is mapped as for JSON calls.</summary>
+    internal async Task<byte[]> SendBinaryAsync(HttpMethod method, string path, string? jsonBody, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(method, _baseUrl + path);
+        if (jsonBody is not null) req.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+        using var response = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode) await ReadAsync(response, ct).ConfigureAwait(false); // throws
+        return await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+    }
+
     /// <summary>Runs one API call, retrying HTTP 429 up to <see cref="MaxRetries"/> times; any other outcome propagates.</summary>
     private async Task<T> WithRetryAsync<T>(Func<Task<T>> call, CancellationToken ct)
     {
@@ -116,6 +126,49 @@ internal sealed class ApiClient : IDisposable
     }
 
     // ── Response parsers ───────────────────────────────────────────────────────
+
+    private static Dictionary<string, object?> Obj(Dictionary<string, object?> d, string key)
+        => d.TryGetValue(key, out var v) && v is Dictionary<string, object?> o ? o : new();
+
+    private static IReadOnlyList<string> Strings(Dictionary<string, object?> d, string key)
+        => d.TryGetValue(key, out var v) && v is List<object?> l
+            ? l.Select(x => x?.ToString() ?? "").ToList().AsReadOnly()
+            : new List<string>().AsReadOnly();
+
+    internal static SignaturePreservationRecord ParseSignaturePreservationRecord(Dictionary<string, object?> d)
+    {
+        var c = Obj(d, "container");
+        var p = Obj(d, "preservation");
+        var e = Obj(d, "evidence_record");
+        return new SignaturePreservationRecord(
+            Id:                   Json.Str(d, "id")!,
+            Status:               Json.Str(d, "status")!,
+            CreatedAt:            Json.Str(d, "created_at")!,
+            ClientRef:            Json.Str(d, "client_ref"),
+            ContainerFormat:      Json.Str(c, "format") ?? "",
+            ContainerName:        Json.Str(c, "name") ?? "",
+            ContainerSha256:      Json.Str(c, "sha256") ?? "",
+            SignatureCount:       Json.Int(d, "signature_count"),
+            PeoSha256:            Json.Str(Obj(d, "peo"), "sha256") ?? "",
+            Profile:              Json.Str(p, "profile") ?? "",
+            PreserveUntil:        Json.Str(p, "preserve_until") ?? "",
+            EvidenceRecordStatus: Json.Str(e, "status") ?? "pending",
+            EvidenceRecordUrl:    Json.Str(e, "download_url"),
+            Signatures:           d.TryGetValue("signatures", out var s) && s is List<object?>
+                                      ? Json.Array(d, "signatures").ToList().AsReadOnly()
+                                      : null
+        );
+    }
+
+    internal static SignaturePreservationReport ParseSignaturePreservationReport(Dictionary<string, object?> d) => new(
+        RecordId: Json.Str(d, "record_id")!,
+        Result:   Json.Str(d, "result")!,
+        Claim:    Json.Str(d, "claim") ?? "",
+        Steps:    Json.Array(d, "steps").Select(s => new SignaturePreservationStep(
+                      Json.Int(s, "step"), Json.Str(s, "name")!, Json.Str(s, "title") ?? "", Json.Str(s, "result")!,
+                      Strings(s, "checked_by"), Strings(s, "details"))).ToList().AsReadOnly(),
+        Raw:      d
+    );
 
     internal static AnchorJob ParseAnchorJob(Dictionary<string, object?> d) => new(
         Id:            Json.Str(d, "id")!,

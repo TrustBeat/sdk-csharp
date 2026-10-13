@@ -374,3 +374,57 @@ public sealed record LogProof(
     AnchorProof?            Proof,
     IReadOnlyList<string>?  FailureReasons
 );
+
+// ── Signature Preservation ────────────────────────────────────────────────────
+
+/// <summary>
+/// A preserved signed file (<c>/v1/signature-preservation</c>).
+/// <para><see cref="Status"/> is <c>"pending"</c> (queued for the next anchoring cycle), <c>"anchored"</c>
+/// (its RFC 4998 evidence record is being made) or <c>"preserved"</c> (the evidence record exists).
+/// <see cref="Signatures"/> is <c>null</c> in a list; each entry is the API's object (signer, EU DSS
+/// indication, qualification).</para>
+/// </summary>
+public sealed record SignaturePreservationRecord(
+    string  Id,
+    string  Status,
+    string  CreatedAt,
+    string? ClientRef,
+    string  ContainerFormat,
+    string  ContainerName,
+    string  ContainerSha256,
+    int     SignatureCount,
+    /// <summary>SHA-256 of the Preservation Evidence Object — the anchored leaf.</summary>
+    string  PeoSha256,
+    string  Profile,
+    string  PreserveUntil,
+    /// <summary><c>"pending"</c> or <c>"ready"</c>.</summary>
+    string  EvidenceRecordStatus,
+    string? EvidenceRecordUrl,
+    IReadOnlyList<Dictionary<string, object?>>? Signatures
+);
+
+/// <summary>One step of a verification report.</summary>
+public sealed record SignaturePreservationStep(
+    int    Step,
+    /// <summary>file, binding, signature, chain, timestamps, qualification or evidence-record.</summary>
+    string Name,
+    string Title,
+    /// <summary>passed, failed, indeterminate or not-applicable.</summary>
+    string Result,
+    IReadOnlyList<string> CheckedBy,
+    IReadOnlyList<string> Details
+);
+
+/// <summary>
+/// The report of <c>POST /v1/signature-preservation/{id}/verify</c>. <see cref="Result"/> is
+/// <c>"passed"</c>, <c>"failed"</c> (a step failed) or <c>"indeterminate"</c> (a step could not be
+/// decided). <see cref="Raw"/> is the full JSON report (signatures now and at preservation,
+/// evidence-record time-stamps).
+/// </summary>
+public sealed record SignaturePreservationReport(
+    string RecordId,
+    string Result,
+    string Claim,
+    IReadOnlyList<SignaturePreservationStep> Steps,
+    Dictionary<string, object?> Raw
+);

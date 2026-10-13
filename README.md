@@ -61,6 +61,39 @@ var proof = await tb.AnchorLogWaitAsync(job.Id);
 Console.WriteLine(proof.VerificationStatus); // "VERIFIED"
 ```
 
+## Signature Preservation (not yet available)
+
+> **Not yet available** — the API answers `404` until the product is launched.
+
+Preserves the electronic signatures of a signed file (PAdES, XAdES, CAdES, ASiC-E, ASiC-S) for 30
+years. **The signed file never reaches TrustBeat, and this SDK does not read it:** the
+`trustbeat-signature` extractor reads it on your machine and writes a submission JSON (the signatures and the digests that
+bind them to the file), which the SDK sends unchanged.
+
+```bash
+trustbeat-signature extract contract.pdf --out contract.submission.json
+```
+
+```csharp
+var submission = await File.ReadAllTextAsync("contract.submission.json");
+
+var rec = await tb.PreserveSignaturesAsync(submission, clientRef: "contract-17"); // one anchor against the quota
+rec = await tb.GetSignaturePreservationAsync(rec.Id);      // Status: pending -> anchored -> preserved
+var recs = await tb.ListSignaturePreservationsAsync(limit: 50);
+
+await File.WriteAllBytesAsync("package.zip", await tb.DownloadSignaturePreservationPackageAsync(rec.Id)); // offline verification
+
+// Years later: the file presented now, extracted again
+var now = await File.ReadAllTextAsync("now.submission.json");
+var report = await tb.VerifySignaturePreservationAsync(rec.Id, now);
+Console.WriteLine($"{report.Result} {report.Steps[0].Name} {report.Steps[0].Result}");
+var pdf = await tb.VerifySignaturePreservationPdfAsync(rec.Id, now);
+```
+
+Verifying later works with the original file only: `trustbeat-signature extract` it again and pass that
+submission. A file that does not match is a report with failed steps, not an error. Offline, without
+TrustBeat: `trustbeat-signature verify contract.pdf --package package.zip`.
+
 ## Webhooks
 
 If your account has a webhook secret configured, every delivery is signed with
