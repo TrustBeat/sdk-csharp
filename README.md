@@ -77,7 +77,7 @@ trustbeat-signature extract contract.pdf --out contract.submission.json
 ```csharp
 var submission = await File.ReadAllTextAsync("contract.submission.json");
 
-var rec = await tb.PreserveSignaturesAsync(submission, clientRef: "contract-17"); // one anchor against the quota
+var rec = await tb.PreserveSignaturesAsync(submission, clientRef: "contract-17"); // one preserved file of your Signature Preservation plan
 rec = await tb.GetSignaturePreservationAsync(rec.Id);      // Status: pending -> anchored -> preserved
 var recs = await tb.ListSignaturePreservationsAsync(limit: 50);
 
@@ -96,6 +96,12 @@ await tb.DeleteSignaturePreservationAsync(rec.Id, rec.Id);
 Verifying later works with the original file only: `trustbeat-signature extract` it again and pass that
 submission. A file that does not match is a report with failed steps, not an error. Offline, without
 TrustBeat: `trustbeat-signature verify contract.pdf --package package.zip`.
+
+Preserving needs a Signature Preservation subscription (Starter €19 / month for 100 files, Business €299 /
+month for 2,000; no free trial). Without one the call fails with HTTP 402 — `QuotaException`, whose message
+says `SUBSCRIPTION_REQUIRED` and gives the billing link. Over the monthly allowance the file is still preserved
+and billed per file. It does not use Document Anchoring quota, and reading, downloading, verifying and
+deleting records never need a plan.
 
 ## Webhooks
 

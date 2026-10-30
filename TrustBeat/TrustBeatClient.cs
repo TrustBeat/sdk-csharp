@@ -471,8 +471,9 @@ public sealed class TrustBeatClient : IDisposable
     /// Preserve the signatures of a signed file.
     /// <para><paramref name="submission"/> is the JSON that <c>trustbeat-signature extract &lt;file&gt;</c>
     /// writes. It holds the signatures and the digests binding them to the file; the signed file itself
-    /// never reaches TrustBeat, and this SDK does not read signed files. Counts as one anchor against the
-    /// monthly quota. A submission the API does not accept is a <see cref="TrustBeatException"/> with
+    /// never reaches TrustBeat, and this SDK does not read signed files. Counts as one preserved file of
+    /// the account's Signature Preservation plan; without a plan it is a <see cref="QuotaException"/> (402,
+    /// <c>SUBSCRIPTION_REQUIRED</c> in its message). A submission the API does not accept is a <see cref="TrustBeatException"/> with
     /// status 400 and code <c>INVALID_SUBMISSION</c>.</para>
     /// </summary>
     /// <param name="submission">The extractor's submission JSON, sent unchanged.</param>
