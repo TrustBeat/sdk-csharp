@@ -465,7 +465,7 @@ public sealed class TrustBeatClient : IDisposable
         return ApiClient.ParseCertValidationResult(data);
     }
 
-    // ── Signature Preservation (not yet available: the API answers 404 until launch) ──
+    // ── Signature Preservation ──
 
     /// <summary>
     /// Preserve the signatures of a signed file.
